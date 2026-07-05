@@ -88,6 +88,40 @@ class TravelExtraction(BaseModel):
 
 travel_extractor = llm.with_structured_output(TravelExtraction)
 
+FIELD_LABELS = {
+    "hotel_id": "hotel ID",
+    "guest_name": "guest name",
+    "guest_email": "guest email",
+    "room_type": "room type",
+    "check_in": "check-in date",
+    "check_out": "check-out date",
+    "flight_id": "flight ID",
+    "passenger_name": "passenger name",
+    "passenger_email": "passenger email",
+    "origin": "departure city or airport",
+    "destination": "destination city or airport",
+    "city": "city",
+}
+
+
+def _format_missing_fields(missing: list[str]) -> str:
+    labels = [FIELD_LABELS.get(field, field) for field in missing]
+
+    if len(labels) == 1:
+        return labels[0]
+
+    if len(labels) == 2:
+        return f"{labels[0]} and {labels[1]}"
+
+    return f"{', '.join(labels[:-1])}, and {labels[-1]}"
+
+
+def _missing_details_message(action: str, missing: list[str]) -> str:
+    return (
+        f"I can help with that {action}. "
+        f"I still need your {_format_missing_fields(missing)}."
+    )
+
 
 def router(state: GraphState) -> dict:
     user_message = state["messages"][-1]
@@ -261,11 +295,7 @@ def hotel_node(state: GraphState) -> dict:
             return {
                 "hotel_results": [],
                 "flight_results": [],
-                "response_text": (
-                    "I need more details to book the hotel. "
-                    "Please provide hotel_id, guest_name, guest_email, room_type, "
-                    "check_in, and check_out."
-                ),
+                "response_text": _missing_details_message("book a hotel", missing),
             }
 
         result = book_hotel.invoke(
@@ -358,10 +388,7 @@ def flight_node(state: GraphState) -> dict:
             return {
                 "hotel_results": [],
                 "flight_results": [],
-                "response_text": (
-                    "I need more details to book the flight. "
-                    "Please provide flight_id, passenger_name, and passenger_email."
-                ),
+                "response_text": _missing_details_message("flight booking", missing),
             }
 
         result = book_flight.invoke(
