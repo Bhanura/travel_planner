@@ -295,7 +295,7 @@ def hotel_node(state: GraphState) -> dict:
             return {
                 "hotel_results": [],
                 "flight_results": [],
-                "response_text": _missing_details_message("book a hotel", missing),
+                "response_text": _missing_details_message("booking hotel", missing),
             }
 
         result = book_hotel.invoke(
@@ -308,6 +308,9 @@ def hotel_node(state: GraphState) -> dict:
                 "room_type": room_type,
             }
         )
+
+    elif state.get("sub_action") == "list_all":
+        result = get_hotels.invoke({})
 
     elif city:
         params = {
@@ -323,7 +326,11 @@ def hotel_node(state: GraphState) -> dict:
         result = search_hotel.invoke(params)
 
     else:
-        result = get_hotels.invoke({})
+        return {
+            "hotel_results": [],
+            "flight_results": [],
+            "response_text": _missing_details_message("searching hotels", ["city"]),
+        }
 
     if state.get("sub_action") == "book":
         if isinstance(result, dict):
