@@ -406,6 +406,9 @@ def flight_node(state: GraphState) -> dict:
             }
         )
 
+    elif state.get("sub_action") == "list_all":
+        result = get_flights.invoke({})
+
     elif origin and destination:
         params = {
             "origin": origin,
@@ -418,17 +421,26 @@ def flight_node(state: GraphState) -> dict:
         result = search_flights.invoke(params)
 
     elif origin or destination:
+        missing = []
+        
+        if not origin:
+            missing.append("origin")
+        
+        if not destination:
+            missing.append("destination")
+
         return {
             "hotel_results": [],
             "flight_results": [],
-            "response_text": (
-                "I need both departure and destination information. "
-                "For example: 'flight from BOM to DEL'."
-            ),
+            "response_text": _missing_details_message("searching flights", missing),
         }
 
     else:
-        result = get_flights.invoke({})
+        return {
+            "hotel_results": [],
+            "flight_results": [],
+            "response_text": _missing_details_message("searching flights", ["origin", "destination"]),
+        }
 
     if state.get("sub_action") == "book":
         if isinstance(result, dict):
