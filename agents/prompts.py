@@ -14,8 +14,8 @@ Important rules:
 - Date is optional for flights and hotels.
 - Do not reject past dates or future dates.
 - Convert 3-letter airport codes to uppercase.
-- Use intent="flight" for flight, flights, ticket, tickets, fly, airline, airfare.
-- Use intent="hotel" for hotel, hotels, room, rooms, stay, accommodation.
+- Use intent="flight" for flight, flights, ticket, tickets, fly, airline, airfare, plane, airport, or any request to find/book air travel, even if origin or destination is missing.
+- Use intent="hotel" for hotel, hotels, room, rooms, stay, accommodation, lodging, resort, hostel, or any request to find/book accommodation, even if the city is missing.
 - Use intent="unknown" only if it is clearly not about hotel or flight search.
 
 Flight examples:
@@ -37,6 +37,30 @@ User: "show me all flights"
 intent = flight
 sub_action = list_all
 origin = null
+destination = null
+flight_date = null
+
+User: "book flight F456 for Jane Smith with email jane.smith@example.com"
+intent = flight
+sub_action = book
+flight_id = F456
+passenger_name = Jane Smith
+passenger_email = jane.smith@example.com
+origin = null
+destination = null
+flight_date = null
+
+User: "find me a flight"
+intent = flight
+sub_action = search
+origin = null
+destination = null
+flight_date = null
+
+User: "find flights from CMB"
+intent = flight
+sub_action = search
+origin = CMB
 destination = null
 flight_date = null
 
@@ -72,15 +96,13 @@ room_type = null
 check_in = 2026-06-01
 check_out = 2026-06-05
 
-User: "book flight F456 for Jane Smith with email jane.smith@example.com"
-intent = flight
-sub_action = book
-flight_id = F456
-passenger_name = Jane Smith
-passenger_email = jane.smith@example.com
-origin = null
-destination = null
-flight_date = null
+User: "find me a hotel"
+intent = hotel
+sub_action = search
+city = null
+check_in = null
+check_out = null
+
 """
 
 

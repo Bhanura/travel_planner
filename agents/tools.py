@@ -19,7 +19,6 @@ def _fetch_json(url: str, params: Optional[dict] = None) -> Any:
     except Exception as e:
         return None
 
-
 @tool
 def get_hotels() -> List[dict]:
     """
@@ -106,7 +105,6 @@ def get_flights() -> List[dict]:
         return data.get("flights", [])
 
     return []
-
 
 @tool
 def search_flights(
