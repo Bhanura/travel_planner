@@ -295,7 +295,7 @@ def hotel_node(state: GraphState) -> dict:
             return {
                 "hotel_results": [],
                 "flight_results": [],
-                "response_text": _missing_details_message("booking hotel", missing),
+                "response_text": _missing_details_message("hotel booking", missing),
             }
 
         result = book_hotel.invoke(
@@ -329,7 +329,7 @@ def hotel_node(state: GraphState) -> dict:
         return {
             "hotel_results": [],
             "flight_results": [],
-            "response_text": _missing_details_message("searching hotels", ["city"]),
+            "response_text": _missing_details_message("hotel search", ["city"]),
         }
 
     if state.get("sub_action") == "book":
@@ -432,14 +432,14 @@ def flight_node(state: GraphState) -> dict:
         return {
             "hotel_results": [],
             "flight_results": [],
-            "response_text": _missing_details_message("searching flights", missing),
+            "response_text": _missing_details_message("flight search", missing),
         }
 
     else:
         return {
             "hotel_results": [],
             "flight_results": [],
-            "response_text": _missing_details_message("searching flights", ["origin", "destination"]),
+            "response_text": _missing_details_message("flight search", ["origin", "destination"]),
         }
 
     if state.get("sub_action") == "book":
