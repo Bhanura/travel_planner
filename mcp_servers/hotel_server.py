@@ -3,6 +3,7 @@ from typing import Any, Optional
 import httpx
 from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
+from mcp_servers.provider_utils import get_json, post_json, extract_list
 
 load_dotenv()
 
@@ -13,19 +14,6 @@ HOTEL_API_BASE = os.getenv(
 
 mcp = FastMCP("tripweaver-hotel-server")
 
-
-def _get_json(url: str, params: Optional[dict] = None) -> Any:
-    with httpx.Client(timeout=15) as client:
-        response = client.get(url, params=params)
-        response.raise_for_status()
-        return response.json()
-
-def _post_json(url: str, data: Optional[dict] = None) -> Any:
-    with httpx.Client(timeout=15) as client:
-        response = client.post(url, json=data)
-        response.raise_for_status()
-        return response.json()
-    
 @mcp.tool()
 def book_hotel(
     hotel_id: str,
@@ -55,7 +43,7 @@ def book_hotel(
         "roomType": room_type,
     }
 
-    data = _post_json(f"{HOTEL_API_BASE}/book", data=payload)
+    data = post_json(f"{HOTEL_API_BASE}/book", payload=payload)
 
     return data if isinstance(data, dict) else {"status": "unknown", "raw": data}
 
@@ -64,16 +52,9 @@ def list_hotels() -> list[dict]:
     """
     List all available hotels from the configured hotel provider.
     """
-    data = _get_json(HOTEL_API_BASE)
+    data = get_json(HOTEL_API_BASE)
 
-    if isinstance(data, dict):
-        hotels = data.get("hotels", [])
-        return hotels if isinstance(hotels, list) else []
-
-    if isinstance(data, list):
-        return data
-
-    return []
+    return extract_list(data, "hotels")
 
 @mcp.tool()
 def search_hotels(
@@ -97,16 +78,9 @@ def search_hotels(
     if check_out:
         params["checkOut"] = check_out
 
-    data = _get_json(f"{HOTEL_API_BASE}/search", params=params)
+    data = get_json(f"{HOTEL_API_BASE}/search", params=params)
 
-    if isinstance(data, dict):
-        hotels = data.get("hotels", [])
-        return hotels if isinstance(hotels, list) else []
-    
-    if isinstance(data, list):
-        return data
-    
-    return []
+    return extract_list(data, "hotels")
 
 
 if __name__ == "__main__":
