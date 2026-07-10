@@ -122,6 +122,15 @@ def _missing_details_message(action: str, missing: list[str]) -> str:
         f"I still need your {_format_missing_fields(missing)}."
     )
 
+def _service_error_response(service: str) -> dict:
+    return {
+        "hotel_results": [],
+        "flight_results": [],
+        "response_text": (
+            f"I'm having trouble reaching the {service} service right now. "
+            "Please try again in a moment, or continue with another travel request."
+        ),
+    }
 
 def router(state: GraphState) -> dict:
     user_message = state["messages"][-1]
@@ -298,19 +307,25 @@ def hotel_node(state: GraphState) -> dict:
                 "response_text": _missing_details_message("hotel booking", missing),
             }
 
-        result = book_hotel.invoke(
-            {
-                "hotel_id": hotel_id,
-                "guest_name": guest_name,
-                "guest_email": guest_email,
-                "check_in_date": check_in_date,
-                "check_out_date": check_out_date,
-                "room_type": room_type,
-            }
-        )
+        try:
+            result = book_hotel.invoke(
+                {
+                    "hotel_id": hotel_id,
+                    "guest_name": guest_name,
+                    "guest_email": guest_email,
+                    "check_in_date": check_in_date,
+                    "check_out_date": check_out_date,
+                    "room_type": room_type,
+                }
+            )
+        except Exception:
+            return _service_error_response("hotel")
 
     elif state.get("sub_action") == "list_all":
-        result = get_hotels.invoke({})
+        try:
+            result = get_hotels.invoke({})
+        except Exception:
+            return _service_error_response("hotel")
 
     elif city:
         params = {
@@ -323,7 +338,10 @@ def hotel_node(state: GraphState) -> dict:
         if check_out:
             params["checkOut"] = check_out
 
-        result = search_hotel.invoke(params)
+        try:
+            result = search_hotel.invoke(params)
+        except Exception:
+            return _service_error_response("hotel")
 
     else:
         return {
@@ -398,16 +416,22 @@ def flight_node(state: GraphState) -> dict:
                 "response_text": _missing_details_message("flight booking", missing),
             }
 
-        result = book_flight.invoke(
-            {
-                "flight_id": flight_id,
-                "passenger_name": passenger_name,
-                "passenger_email": passenger_email,
-            }
-        )
+        try:
+            result = book_flight.invoke(
+                {
+                    "flight_id": flight_id,
+                    "passenger_name": passenger_name,
+                    "passenger_email": passenger_email,
+                }
+            )
+        except Exception:
+            return _service_error_response("flight")
 
     elif state.get("sub_action") == "list_all":
-        result = get_flights.invoke({})
+        try:
+            result = get_flights.invoke({})
+        except Exception:
+            return _service_error_response("flight")
 
     elif origin and destination:
         params = {
@@ -418,7 +442,10 @@ def flight_node(state: GraphState) -> dict:
         if flight_date:
             params["date"] = flight_date
 
-        result = search_flights.invoke(params)
+        try:
+            result = search_flights.invoke(params)
+        except Exception:
+            return _service_error_response("flight")
 
     elif origin or destination:
         missing = []
