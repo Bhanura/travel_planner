@@ -206,7 +206,7 @@ def _format_hotel(hotel: dict) -> str:
     else:
         city = city_data
 
-    stars = hotel.get("stars", hotel.get("rating", "N/A"))
+    stars = hotel.get("rating", hotel.get("starRating", "N/A"))
     price = hotel.get("price", hotel.get("pricePerNight", "N/A"))
     currency = hotel.get("currency", "USD")
 
