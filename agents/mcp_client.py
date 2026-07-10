@@ -3,6 +3,7 @@ import json
 import sys
 from typing import Any
 
+from concurrent.futures import ThreadPoolExecutor
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
@@ -21,10 +22,14 @@ def call_mcp_tool(server: str, tool_name: str, arguments: dict | None = None) ->
     """
     Synchronous wrapper used by LangChain tools.
 
-    Starts the selected MCP server, calls one tool, parses the result,
-    and returns plain Python data.
+    Runs the async MCP call in a worker thread so it works both from normal
+    scripts and from FastAPI/LangGraph contexts that already have an event loop.
     """
-    return asyncio.run(_call_mcp_tool_async(server, tool_name, arguments or {}))
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(
+            asyncio.run, _call_mcp_tool_async(server, tool_name, arguments or {})
+        )
+        return future.result()
 
 
 async def _call_mcp_tool_async(server: str, tool_name: str, arguments: dict) -> Any:
