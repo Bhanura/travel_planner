@@ -1,9 +1,14 @@
 import json
 import os
+from dotenv import load_dotenv
 from urllib.request import Request, urlopen
 import gradio as gr
 
-API_URL = os.environ.get("TRAVEL_PLANNER_API_URL", "http://127.0.0.1:8000/chat")
+load_dotenv()
+
+API_BASE_URL = os.environ.get("TRAVEL_PLANNER_API_URL", "http://127.0.0.1:8000").rstrip("/")
+CHAT_URL = f"{API_BASE_URL}/chat"
+STREAM_URL = f"{API_BASE_URL}/chat/stream"
 
 
 def format_flights(flights):
@@ -42,7 +47,7 @@ def format_hotels(hotels):
 
 def call_chat_api(message):
     payload = json.dumps({"message": message}).encode("utf-8")
-    request = Request(API_URL, data=payload, headers={"Content-Type": "application/json"})
+    request = Request(CHAT_URL, data=payload, headers={"Content-Type": "application/json"})
 
     try:
         response = urlopen(request, timeout=15)
@@ -76,7 +81,7 @@ def respond(message, history):
 def main():
     with gr.Blocks() as demo:
         gr.Markdown(
-            "# Travel Planner Chat\nAsk the backend for flights, hotels, or travel plans. ``TRAVEL_PLANNER_API_URL`` can be set to point to your FastAPI server."
+            "# Trip Weaver by Bhanura Waduge\nHotels, flights, and travel help through MCP-powered agents."
         )
         chatbot = gr.Chatbot()
         message = gr.Textbox(label="Your message", placeholder="Find me flights from CAN to HAN on 2025-11-15")
