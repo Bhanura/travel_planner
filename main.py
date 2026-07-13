@@ -60,32 +60,17 @@ def _activity_from_result(result: dict) -> dict:
         "message": "Preparing your answer...",
     }
 
-@app.get("/")
-async def hello():
-    return {"message": "Hello, World!"}
-
-
-@app.get("/hotels")
-async def list_hotels():
-    return get_hotels.invoke({})
-
-
-@app.get("/flights")
-async def list_flights():
-    return get_flights.invoke({})
-
-
-@app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-
+def _build_initial_state(message: str) -> dict:
     recent_pairs = conversation_history_messages[-3:]
     flattened_messages = []
+
     for user_msg, assistant_msg in recent_pairs:
         flattened_messages.append(user_msg)
         flattened_messages.append(assistant_msg)
-    flattened_messages.append(request.message)
 
-    initial_state = {
+    flattened_messages.append(message)
+
+    return {
         "messages": flattened_messages,
         "intent": "",
         "sub_action": "",
@@ -107,6 +92,26 @@ async def chat(request: ChatRequest):
         "response_text": "",
     }
 
+@app.get("/")
+async def hello():
+    return {"message": "Hello, World!"}
+
+
+@app.get("/hotels")
+async def list_hotels():
+    return get_hotels.invoke({})
+
+
+@app.get("/flights")
+async def list_flights():
+    return get_flights.invoke({})
+
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+
+    initial_state = _build_initial_state(request.message)
+    
     try:
         result = graph.invoke(initial_state)
 
@@ -140,34 +145,7 @@ async def chat_stream(request: ChatRequest):
                 "message": "Understanding your request...",
             })
 
-            recent_pairs = conversation_history_messages[-3:]
-            flattened_messages = []
-            for user_msg, assistant_msg in recent_pairs:
-                flattened_messages.append(user_msg)
-                flattened_messages.append(assistant_msg)
-            flattened_messages.append(request.message)
-
-            initial_state = {
-                "messages": flattened_messages,
-                "intent": "",
-                "sub_action": "",
-                "city": None,
-                "check_in": None,
-                "check_out": None,
-                "origin": None,
-                "destination": None,
-                "flight_date": None,
-                "hotel_id": None,
-                "guest_name": None,
-                "guest_email": None,
-                "room_type": None,
-                "flight_id": None,
-                "passenger_name": None,
-                "passenger_email": None,
-                "hotel_results": [],
-                "flight_results": [],
-                "response_text": "",
-            }
+            initial_state = _build_initial_state(request.message)
 
             yield _stream_event({
                 "type": "activity",
