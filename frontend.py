@@ -1,5 +1,6 @@
 import json
 import os
+import uuid
 from dotenv import load_dotenv
 from urllib.request import Request, urlopen
 import gradio as gr
@@ -111,8 +112,10 @@ def format_hotels(hotels):
     return "\n".join(lines)
 
 
-def call_chat_api(message):
-    payload = json.dumps({"message": message}).encode("utf-8")
+def call_chat_api(message, session_id):
+    payload = json.dumps(
+        {"message": message, "session_id": session_id}
+    ).encode("utf-8")
     request = Request(CHAT_URL, data=payload, headers={"Content-Type": "application/json"})
 
     try:
@@ -132,8 +135,11 @@ def call_chat_api(message):
     return "\n\n".join(parts)
 
 
-def stream_chat_api(message):
-    payload = json.dumps({"message": message}).encode("utf-8")
+def stream_chat_api(message, session_id):
+    payload = json.dumps(
+        {"message": message, "session_id": session_id}
+    ).encode("utf-8")
+    
     request = Request(
         STREAM_URL,
         data=payload,
@@ -191,7 +197,7 @@ def render_progress(events, done=False, error=False):
     </div>
     """
 
-def respond(message, history):
+def respond(message, history, session_id):
     if history is None:
         history = []
 
@@ -211,7 +217,7 @@ def respond(message, history):
     yield history, "", render_progress(progress_events)
 
     try:
-        for event in stream_chat_api(message):
+        for event in stream_chat_api(message, session_id):
             event_type = event.get("type")
 
             if event_type == "activity":
@@ -247,7 +253,7 @@ def respond(message, history):
                 break
 
     except Exception:
-        fallback = call_chat_api(message)
+        fallback = call_chat_api(message, session_id)
         progress_events.append({
             "stage": "fallback",
             "message": "Streaming failed. Used normal chat response.",
@@ -257,6 +263,7 @@ def respond(message, history):
 
 def main():
     with gr.Blocks(css=APP_CSS) as demo:
+        session_id = gr.State(str(uuid.uuid4()))
         gr.Markdown(
             "# Trip Weaver by Bhanura Waduge\n"
             "Hotels, flights, and travel help through MCP-powered agents."
@@ -278,12 +285,12 @@ def main():
 
         submit.click(
             respond,
-            inputs=[message, chatbot],
+            inputs=[message, chatbot, session_id],
             outputs=[chatbot, message, progress],
         )
         message.submit(
             respond,
-            inputs=[message, chatbot],
+            inputs=[message, chatbot, session_id],
             outputs=[chatbot, message, progress],
         )
 
