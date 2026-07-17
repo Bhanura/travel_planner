@@ -76,6 +76,22 @@ APP_CSS = """
         transform: rotate(360deg);
     }
 }
+
+.result-item {
+    border-top: 1px solid #3f3f46;
+    padding: 10px 0;
+}
+
+.result-name {
+    font-weight: 700;
+    color: #f4f4f5;
+}
+
+.result-meta {
+    color: #a1a1aa;
+    font-size: 13px;
+    margin-top: 4px;
+}
 """
 
 def format_flights(flights):
@@ -99,7 +115,6 @@ def format_flights(flights):
         )
     return "\n".join(lines)
 
-
 def format_hotels(hotels):
     lines = ["Hotels:"]
     for hotel in hotels:
@@ -110,7 +125,6 @@ def format_hotels(hotels):
         currency = hotel.get("price") or hotel.get("currency", "")
         lines.append(f"{id}: {name} in {city} - {price_per_night}{currency} per night")
     return "\n".join(lines)
-
 
 def call_chat_api(message, session_id):
     payload = json.dumps(
@@ -133,7 +147,6 @@ def call_chat_api(message, session_id):
         parts.append(format_hotels(data["hotels"]))
 
     return "\n\n".join(parts)
-
 
 def stream_chat_api(message, session_id):
     payload = json.dumps(
@@ -197,12 +210,93 @@ def render_progress(events, done=False, error=False):
     </div>
     """
 
-def respond(message, history, session_id):
+def render_results_panel(results_state):
+    hotels = results_state.get("hotels", [])
+    flights = results_state.get("flights", [])
+    expanded = results_state.get("expanded", False)
+
+    if not hotels and not flights:
+        return """
+        <div class="progress-panel">
+            <div class="progress-title">Travel results</div>
+            <div class="progress-empty">No hotel or flight results yet.</div>
+        </div>
+        """
+
+    if hotels:
+        items = hotels if expanded else hotels[:5]
+        rows = []
+
+        for hotel in items:
+            name = escape(str(hotel.get("name", "Unknown hotel")))
+            city = escape(str(hotel.get("city", "Unknown city")))
+            price = escape(str(hotel.get("pricePerNight", "N/A")))
+            currency = escape(str(hotel.get("currency", "USD")))
+            rooms = escape(str(hotel.get("availableRooms", "N/A")))
+            stars = escape(str(hotel.get("starRating", "N/A")))
+
+            rows.append(
+                f"""
+                <div class="result-item">
+                    <div class="result-name">{name}</div>
+                    <div class="result-meta">{city} | {stars} stars | {currency} {price}/night | {rooms} rooms</div>
+                </div>
+                """
+            )
+
+        count_text = f"Showing {len(items)} of {len(hotels)} hotels"
+
+    else:
+        items = flights if expanded else flights[:5]
+        rows = []
+
+        for flight in items:
+            airline = escape(str(flight.get("airline", "Unknown airline")))
+            number = escape(str(flight.get("flightNumber", "N/A")))
+            origin = flight.get("origin", {})
+            destination = flight.get("destination", {})
+            origin_code = escape(str(origin.get("airport", "N/A")))
+            destination_code = escape(str(destination.get("airport", "N/A")))
+            date = escape(str(flight.get("flightDate", "Unknown date")))
+            price = escape(str(flight.get("price", "N/A")))
+            currency = escape(str(flight.get("currency", "USD")))
+
+            rows.append(
+                f"""
+                <div class="result-item">
+                    <div class="result-name">{airline} {number}</div>
+                    <div class="result-meta">{origin_code} to {destination_code} | {date} | {currency} {price}</div>
+                </div>
+                """
+            )
+
+        count_text = f"Showing {len(items)} of {len(flights)} flights"
+
+    return f"""
+    <div class="progress-panel">
+        <div class="progress-title">Travel results</div>
+        <div class="progress-empty">{count_text}</div>
+        {''.join(rows)}
+    </div>
+    """
+
+def toggle_results(results_state):
+    if results_state is None:
+        results_state = {"hotels": [], "flights": [], "expanded": False}
+
+    results_state = {
+        **results_state,
+        "expanded": not results_state.get("expanded", False),
+    }
+
+    return render_results_panel(results_state), results_state
+
+def respond(message, history, session_id, results_state):
     if history is None:
         history = []
 
     if not message.strip():
-        yield history, "", render_progress([])
+        yield history, "", render_progress([]), render_results_panel(results_state), results_state
         return
 
     progress_events = [
@@ -214,7 +308,7 @@ def respond(message, history, session_id):
         {"role": "assistant", "content": "Starting..."},
     ]
 
-    yield history, "", render_progress(progress_events)
+    yield history, "", render_progress(progress_events), render_results_panel(results_state), results_state
 
     try:
         for event in stream_chat_api(message, session_id):
@@ -230,12 +324,17 @@ def respond(message, history, session_id):
                     progress_events.append(activity)
 
                 history[-1]["content"] = activity["message"]
-                yield history, "", render_progress(progress_events)
+                yield history, "", render_progress(progress_events), render_results_panel(results_state), results_state
 
             elif event_type == "message":
                 final_message = event.get("content", "No response returned.")
                 history[-1]["content"] = final_message
-                yield history, "", render_progress(progress_events, done=True)
+                results_state = {
+                    "hotels": event.get("hotels") or [],
+                    "flights": event.get("flights") or [],
+                    "expanded": False,
+                }
+                yield history, "", render_progress(progress_events, done=True), render_results_panel(results_state), results_state
 
             elif event_type == "error":
                 error_message = event.get(
@@ -247,7 +346,7 @@ def respond(message, history, session_id):
                     "message": error_message,
                 })
                 history[-1]["content"] = error_message
-                yield history, "", render_progress(progress_events, error=True)
+                yield history, "", render_progress(progress_events, error=True), render_results_panel(results_state), results_state
 
             elif event_type == "done":
                 break
@@ -259,11 +358,18 @@ def respond(message, history, session_id):
             "message": "Streaming failed. Used normal chat response.",
         })
         history[-1]["content"] = fallback
-        yield history, "", render_progress(progress_events, done=True)
+        yield history, "", render_progress(progress_events, done=True), render_results_panel(results_state), results_state
 
 def main():
-    with gr.Blocks(css=APP_CSS) as demo:
+    with gr.Blocks() as demo:
         session_id = gr.State(str(uuid.uuid4()))
+
+        results_state = gr.State({
+            "hotels": [],
+            "flights": [],
+            "expanded": False,
+        })
+
         gr.Markdown(
             "# Trip Weaver by Bhanura Waduge\n"
             "Hotels, flights, and travel help through MCP-powered agents."
@@ -283,19 +389,30 @@ def main():
                 with gr.Accordion("Agent progress", open=True):
                     progress = gr.HTML(render_progress([]))
 
+                with gr.Accordion("Travel results", open=True):
+                    results = gr.HTML(render_results_panel({"hotels": [], "flights": [], "expanded": False}))
+                    toggle_results_button = gr.Button("See All / Collapse")
+
         submit.click(
             respond,
-            inputs=[message, chatbot, session_id],
-            outputs=[chatbot, message, progress],
+            inputs=[message, chatbot, session_id, results_state],
+            outputs=[chatbot, message, progress, results, results_state],
+            
         )
+        
         message.submit(
             respond,
-            inputs=[message, chatbot, session_id],
-            outputs=[chatbot, message, progress],
+            inputs=[message, chatbot, session_id, results_state],
+            outputs=[chatbot, message, progress, results, results_state],
         )
 
-    demo.launch()
+        toggle_results_button.click(
+            toggle_results,
+            inputs=[results_state],
+            outputs=[results, results_state],
+        )
 
+    demo.launch(css=APP_CSS)
 
 if __name__ == "__main__":
     main()
