@@ -383,7 +383,28 @@ def main():
                     label="Your message",
                     placeholder="Find me flights from CAN to HAN on 2025-11-15",
                 )
+
+                with gr.Row():
+                    hotel_example = gr.Button("Hotels in Bangkok")
+                    flight_example = gr.Button("Flights BOM to DEL")
+                    booking_example = gr.Button("Book a hotel")
+
                 submit = gr.Button("Send")
+
+                hotel_example.click(
+                    lambda: "hotels in Bangkok",
+                    outputs=[message],
+                )
+
+                flight_example.click(
+                    lambda: "find flights from BOM to DEL",
+                    outputs=[message],
+                )
+
+                booking_example.click(
+                    lambda: "I need to book a hotel",
+                    outputs=[message],
+                )
 
             with gr.Column(scale=1):
                 with gr.Accordion("Agent progress", open=True):
@@ -397,7 +418,6 @@ def main():
             respond,
             inputs=[message, chatbot, session_id, results_state],
             outputs=[chatbot, message, progress, results, results_state],
-            
         )
         
         message.submit(
