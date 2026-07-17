@@ -129,6 +129,7 @@ Environment variables:
 
 - `OPENAI_API_KEY`: API key used by the LLM.
 - `OPENAI_MODEL`: OpenAI chat model name.
+- `LOG_LEVEL`: Application logging verbosity. Use `INFO` in production and `DEBUG` temporarily during development or diagnosis.
 - `HOTEL_PROVIDER_BASE_URL`: Hotel provider base URL used by the hotel MCP server.
 - `FLIGHT_PROVIDER_BASE_URL`: Flight provider base URL used by the flight MCP server.
 - `TRAVEL_PLANNER_API_URL`: Backend URL used by the Gradio frontend.

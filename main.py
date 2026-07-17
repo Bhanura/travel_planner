@@ -1,5 +1,6 @@
 import json
 import os
+import logging
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
@@ -13,6 +14,17 @@ conversation_sessions = {}
 app = FastAPI()
 
 load_dotenv()
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+numeric_log_level = getattr(logging, LOG_LEVEL, logging.INFO)
+
+logging.basicConfig(
+    level=numeric_log_level,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
+logger = logging.getLogger(__name__)
+logger.setLevel(numeric_log_level)
 
 def _empty_session() -> dict:
     return {
@@ -131,12 +143,12 @@ async def list_flights():
 async def chat(request: ChatRequest):
 
     initial_state = _build_initial_state(request.message, request.session_id)
-    
+
     try:
         result = graph.invoke(initial_state)
 
-    except Exception as exc:
-        print(f"Unexpected chat graph error: {exc}")
+    except Exception:
+        logger.exception("Unexpected chat graph error")
         result = {
             "response_text": (
                 "Something went wrong while planning your trip. "
@@ -158,19 +170,22 @@ async def chat(request: ChatRequest):
     if flight_results:
         session["last_flight_results"] = flight_results
 
-    print("Stored hotel results:", len(session["last_hotel_results"]))
-    print("Stored flight results:", len(session["last_flight_results"]))
+    logger.debug(
+        "Stored hotel results: %d",
+        len(session["last_hotel_results"]),
+    )
+    logger.debug(
+        "Stored flight results: %d",
+        len(session["last_flight_results"]),
+    )
 
     if result.get("pending_hotel_booking") is not None:
         session["pending_hotel_booking"] = result.get("pending_hotel_booking")
-        print(
-            "Stored pending hotel booking:",
-            session["pending_hotel_booking"]["hotel"].get("name"),
-        )
-    
+        logger.debug("Stored pending hotel booking state")
+
     if result.get("booking_confirmed"):
         session["pending_hotel_booking"] = None
-        print("Cleared pending hotel booking")
+        logger.debug("Cleared pending hotel booking state")
 
     return ChatResponse(
         response=response_text,
@@ -222,20 +237,22 @@ async def chat_stream(request: ChatRequest):
             if flight_results:
                 session["last_flight_results"] = flight_results
 
-            print("Stored hotel results:", len(session["last_hotel_results"]))
-            print("Stored flight results:", len(session["last_flight_results"]))
+            logger.debug(
+                "Stored hotel results during stream: %d",
+                len(session["last_hotel_results"]),
+            )
+            logger.debug(
+                "Stored flight results during stream: %d",
+                len(session["last_flight_results"]),
+            )
 
             if result.get("pending_hotel_booking") is not None:
                 session["pending_hotel_booking"] = result.get("pending_hotel_booking")
-                print(
-                    "Stored pending hotel booking:",
-                    session["pending_hotel_booking"]["hotel"].get("name"),
-                )
-            
+                logger.debug("Stored pending hotel booking state during stream")
+
             if result.get("booking_confirmed"):
                 session["pending_hotel_booking"] = None
-                print("Cleared pending hotel booking")
-
+                logger.debug("Cleared pending hotel booking state during stream")
             yield _stream_event({
                 "type": "message",
                 "content": response_text,
@@ -245,8 +262,8 @@ async def chat_stream(request: ChatRequest):
 
             yield _stream_event({"type": "done"})
 
-        except Exception as exc:
-            print(f"Unexpected chat stream error: {exc}")
+        except Exception:
+            logger.exception("Unexpected chat stream error")
             yield _stream_event({
                 "type": "error",
                 "message": (
