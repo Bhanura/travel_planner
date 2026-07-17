@@ -1,4 +1,6 @@
 import json
+import os
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,13 +8,34 @@ from entity import ChatRequest, ChatResponse
 from agents.tools import get_hotels, get_flights
 from agents.graph import graph
 
-conversation_history_messages = []
+conversation_sessions = {}
 
 app = FastAPI()
 
+load_dotenv()
+
+def _empty_session() -> dict:
+    return {
+        "messages": [],
+        "last_hotel_results": [],
+        "last_flight_results": [],
+        "pending_hotel_booking": None,
+        "pending_flight_booking": None,
+    }
+
+def _get_session(session_id: str | None) -> dict:
+    safe_session_id = session_id or "default"
+
+    if safe_session_id not in conversation_sessions:
+        conversation_sessions[safe_session_id] = _empty_session()
+
+    return conversation_sessions[safe_session_id]
+
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -54,32 +77,18 @@ def _activity_from_result(result: dict) -> dict:
         "message": "Preparing your answer...",
     }
 
-@app.get("/")
-async def hello():
-    return {"message": "Hello, World!"}
-
-
-@app.get("/hotels")
-async def list_hotels():
-    return get_hotels.invoke({})
-
-
-@app.get("/flights")
-async def list_flights():
-    return get_flights.invoke({})
-
-
-@app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-
-    recent_pairs = conversation_history_messages[-3:]
+def _build_initial_state(message: str, session_id: str | None) -> dict:
+    session = _get_session(session_id)
+    recent_pairs = session["messages"][-3:]
     flattened_messages = []
+
     for user_msg, assistant_msg in recent_pairs:
         flattened_messages.append(user_msg)
         flattened_messages.append(assistant_msg)
-    flattened_messages.append(request.message)
 
-    initial_state = {
+    flattened_messages.append(message)
+
+    return {
         "messages": flattened_messages,
         "intent": "",
         "sub_action": "",
@@ -98,9 +107,31 @@ async def chat(request: ChatRequest):
         "passenger_email": None,
         "hotel_results": [],
         "flight_results": [],
+        "last_hotel_results": session["last_hotel_results"],
+        "last_flight_results": session["last_flight_results"],
+        "pending_hotel_booking": session["pending_hotel_booking"],
+        "pending_flight_booking": session["pending_flight_booking"],
+        "booking_confirmed": False,
         "response_text": "",
     }
 
+@app.get("/")
+async def hello():
+    return {"message": "Hello, World!"}
+
+@app.get("/hotels")
+async def list_hotels():
+    return get_hotels.invoke({})
+
+@app.get("/flights")
+async def list_flights():
+    return get_flights.invoke({})
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+
+    initial_state = _build_initial_state(request.message, request.session_id)
+    
     try:
         result = graph.invoke(initial_state)
 
@@ -116,7 +147,30 @@ async def chat(request: ChatRequest):
 
     response_text = result.get("response_text", "Something went wrong. Please try again.")
 
-    conversation_history_messages.append((request.message, response_text))
+    session = _get_session(request.session_id)
+    session["messages"].append((request.message, response_text))
+    hotel_results = result.get("hotel_results") or []
+    flight_results = result.get("flight_results") or []
+
+    if hotel_results:
+        session["last_hotel_results"] = hotel_results
+
+    if flight_results:
+        session["last_flight_results"] = flight_results
+
+    print("Stored hotel results:", len(session["last_hotel_results"]))
+    print("Stored flight results:", len(session["last_flight_results"]))
+
+    if result.get("pending_hotel_booking") is not None:
+        session["pending_hotel_booking"] = result.get("pending_hotel_booking")
+        print(
+            "Stored pending hotel booking:",
+            session["pending_hotel_booking"]["hotel"].get("name"),
+        )
+    
+    if result.get("booking_confirmed"):
+        session["pending_hotel_booking"] = None
+        print("Cleared pending hotel booking")
 
     return ChatResponse(
         response=response_text,
@@ -134,34 +188,7 @@ async def chat_stream(request: ChatRequest):
                 "message": "Understanding your request...",
             })
 
-            recent_pairs = conversation_history_messages[-3:]
-            flattened_messages = []
-            for user_msg, assistant_msg in recent_pairs:
-                flattened_messages.append(user_msg)
-                flattened_messages.append(assistant_msg)
-            flattened_messages.append(request.message)
-
-            initial_state = {
-                "messages": flattened_messages,
-                "intent": "",
-                "sub_action": "",
-                "city": None,
-                "check_in": None,
-                "check_out": None,
-                "origin": None,
-                "destination": None,
-                "flight_date": None,
-                "hotel_id": None,
-                "guest_name": None,
-                "guest_email": None,
-                "room_type": None,
-                "flight_id": None,
-                "passenger_name": None,
-                "passenger_email": None,
-                "hotel_results": [],
-                "flight_results": [],
-                "response_text": "",
-            }
+            initial_state = _build_initial_state(request.message, request.session_id)
 
             yield _stream_event({
                 "type": "activity",
@@ -184,7 +211,30 @@ async def chat_stream(request: ChatRequest):
                 "Something went wrong. Please try again.",
             )
 
-            conversation_history_messages.append((request.message, response_text))
+            session = _get_session(request.session_id)
+            session["messages"].append((request.message, response_text))
+            hotel_results = result.get("hotel_results") or []
+            flight_results = result.get("flight_results") or []
+
+            if hotel_results:
+                session["last_hotel_results"] = hotel_results
+
+            if flight_results:
+                session["last_flight_results"] = flight_results
+
+            print("Stored hotel results:", len(session["last_hotel_results"]))
+            print("Stored flight results:", len(session["last_flight_results"]))
+
+            if result.get("pending_hotel_booking") is not None:
+                session["pending_hotel_booking"] = result.get("pending_hotel_booking")
+                print(
+                    "Stored pending hotel booking:",
+                    session["pending_hotel_booking"]["hotel"].get("name"),
+                )
+            
+            if result.get("booking_confirmed"):
+                session["pending_hotel_booking"] = None
+                print("Cleared pending hotel booking")
 
             yield _stream_event({
                 "type": "message",

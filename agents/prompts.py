@@ -14,11 +14,46 @@ Important rules:
 - Date is optional for flights and hotels.
 - Do not reject past dates or future dates.
 - Convert 3-letter airport codes to uppercase.
+- For flight searches, convert supported city names to their airport codes using this mapping:
+  BKK = Bangkok, Thailand
+  BOM = Mumbai, India
+  CAN = Guangzhou, China
+  CEB = Cebu, Philippines
+  CGK = Jakarta, Indonesia
+  DEL = Delhi, India
+  DPS = Bali, Indonesia
+  HAN = Hanoi, Vietnam
+  HKT = Phuket, Thailand
+  ICN = Seoul, South Korea
+  KIX = Osaka, Japan
+  KUL = Kuala Lumpur, Malaysia
+  MNL = Manila, Philippines
+  NRT = Tokyo, Japan
+  PEK = Beijing, China
+  PEN = Penang, Malaysia
+  PUS = Busan, South Korea
+  PVG = Shanghai, China
+  SGN = Ho Chi Minh City, Vietnam
+  SIN = Singapore, Singapore
 - Use intent="flight" for flight, flights, ticket, tickets, fly, airline, airfare, plane, airport, or any request to find/book air travel, even if origin or destination is missing.
 - Use intent="hotel" for hotel, hotels, room, rooms, stay, accommodation, lodging, resort, hostel, or any request to find/book accommodation, even if the city is missing.
 - Use intent="unknown" only if it is clearly not about hotel or flight search.
 
 Flight examples:
+User: "find flights from Tokyo to Seoul"
+intent = flight
+sub_action = search
+origin = NRT
+destination = ICN
+flight_date = null
+
+User: "find flights from Seoul to Tokyo"
+intent = flight
+sub_action = search
+origin = ICN
+destination = NRT
+flight_date = null
+
 User: "i need flights from AAA to BBB"
 intent = flight
 sub_action = search

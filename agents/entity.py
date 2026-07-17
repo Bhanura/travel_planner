@@ -26,4 +26,12 @@ class GraphState(TypedDict):
     hotel_results: List[dict]
     flight_results: List[dict]
 
+    last_hotel_results: List[dict]
+    last_flight_results: List[dict]
+
+    pending_hotel_booking: Optional[dict]
+    pending_flight_booking: Optional[dict]
+
+    booking_confirmed: bool
+
     response_text: str

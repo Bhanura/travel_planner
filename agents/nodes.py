@@ -8,7 +8,6 @@ from .llm import llm
 from .prompts import get_system_prompt_for_unknown_node, get_system_prompt_with_history
 from .entity import GraphState
 
-
 class TravelExtraction(BaseModel):
     intent: Literal["hotel", "flight", "unknown"] = Field(
         default="unknown",
@@ -85,7 +84,6 @@ class TravelExtraction(BaseModel):
         description="Passenger email for flight booking. Null if not provided."
     )
 
-
 travel_extractor = llm.with_structured_output(TravelExtraction)
 
 FIELD_LABELS = {
@@ -103,6 +101,131 @@ FIELD_LABELS = {
     "city": "city",
 }
 
+CITY_TO_AIRPORT = {
+    "bangkok": "BKK",
+    "mumbai": "BOM",
+    "guangzhou": "CAN",
+    "cebu": "CEB",
+    "jakarta": "CGK",
+    "delhi": "DEL",
+    "bali": "DPS",
+    "hanoi": "HAN",
+    "phuket": "HKT",
+    "seoul": "ICN",
+    "osaka": "KIX",
+    "kuala lumpur": "KUL",
+    "manila": "MNL",
+    "tokyo": "NRT",
+    "beijing": "PEK",
+    "penang": "PEN",
+    "busan": "PUS",
+    "shanghai": "PVG",
+    "ho chi minh city": "SGN",
+    "singapore": "SIN",
+}
+
+def _normalize_airport(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+
+    cleaned = value.strip()
+
+    if len(cleaned) == 3 and cleaned.isalpha():
+        return cleaned.upper()
+
+    return CITY_TO_AIRPORT.get(cleaned.lower(), cleaned)
+
+def _normalize_selection_text(value: Optional[str]) -> str:
+    if not value:
+        return ""
+
+    return " ".join(value.lower().replace('"', "").replace("'", "").split())
+
+def _resolve_hotel_selection(candidate: Optional[str], hotels: list[dict]) -> Optional[dict]:
+    if not candidate or not hotels:
+        return None
+
+    candidate_text = _normalize_selection_text(candidate)
+
+    for hotel in hotels:
+        hotel_id = _normalize_selection_text(hotel.get("_id"))
+        hotel_name = _normalize_selection_text(hotel.get("name"))
+
+        if candidate_text == hotel_id or candidate_text == hotel_name:
+            return hotel
+
+    for hotel in hotels:
+        hotel_name = _normalize_selection_text(hotel.get("name"))
+
+        if candidate_text in hotel_name or hotel_name in candidate_text:
+            return hotel
+
+    return None
+
+def _hotel_summary(hotel: dict) -> str:
+    name = hotel.get("name", "selected hotel")
+    city = hotel.get("city", "unknown city")
+    price = hotel.get("pricePerNight", hotel.get("price", "N/A"))
+    currency = hotel.get("currency", "USD")
+
+    return f"{name} in {city} for {currency} {price}/night"
+
+def _hotel_confirmation_message(hotel: dict, details: dict) -> str:
+    return (
+        "Please confirm this hotel booking: "
+        f"{_hotel_summary(hotel)} from {details['check_in_date']} "
+        f"to {details['check_out_date']} for {details['guest_name']} "
+        f"({details['guest_email']}), room type: {details['room_type']}. "
+        "Reply yes to confirm, or tell me what to change."
+    )
+
+def _hotel_booking_success_message(result: dict, hotel: Optional[dict]) -> str:
+    booking = result.get("booking", {}) if isinstance(result, dict) else {}
+
+    booking_reference = booking.get("bookingReference") or booking.get("bookingId")
+    status = booking.get("status", "confirmed")
+    total_price = booking.get("totalPrice")
+
+    if hotel:
+        hotel_text = _hotel_summary(hotel)
+    else:
+        hotel_text = "your selected hotel"
+
+    parts = [f"Hotel booking {status} for {hotel_text}."]
+
+    if booking_reference:
+        parts.append(f"Booking reference: {booking_reference}.")
+
+    if total_price is not None:
+        currency = hotel.get("currency", "USD") if hotel else "USD"
+        parts.append(f"Total price: {currency} {total_price}.")
+
+    return " ".join(parts)
+
+AFFIRMATIVE_WORDS = {
+    "yes",
+    "yeah",
+    "yep",
+    "sure",
+    "confirm",
+    "confirmed",
+    "ok",
+    "okay",
+    "book it",
+    "go ahead",
+}
+
+def _is_affirmative(message: str) -> bool:
+    cleaned = _normalize_selection_text(message)
+    words = set(cleaned.replace(",", " ").replace(".", " ").split())
+
+    return (
+        cleaned in AFFIRMATIVE_WORDS
+        or bool(words & AFFIRMATIVE_WORDS)
+        or "go ahead" in cleaned
+        or "book it" in cleaned
+        or "do it" in cleaned
+    )
 
 def _format_missing_fields(missing: list[str]) -> str:
     labels = [FIELD_LABELS.get(field, field) for field in missing]
@@ -114,7 +237,6 @@ def _format_missing_fields(missing: list[str]) -> str:
         return f"{labels[0]} and {labels[1]}"
 
     return f"{', '.join(labels[:-1])}, and {labels[-1]}"
-
 
 def _missing_details_message(action: str, missing: list[str]) -> str:
     return (
@@ -135,6 +257,45 @@ def _service_error_response(service: str) -> dict:
 def router(state: GraphState) -> dict:
     user_message = state["messages"][-1]
     history_messages = state["messages"][:-1]
+
+    pending_hotel_booking = state.get("pending_hotel_booking")
+
+    if (
+        pending_hotel_booking
+        and pending_hotel_booking.get("awaiting_confirmation")
+        and _is_affirmative(user_message)
+    ):
+        details = pending_hotel_booking.get("details", {})
+        hotel = pending_hotel_booking.get("hotel", {})
+
+        return {
+            "intent": "hotel",
+            "sub_action": "book",
+            "city": None,
+            "check_in": details.get("check_in_date"),
+            "check_out": details.get("check_out_date"),
+            "origin": None,
+            "destination": None,
+            "flight_date": None,
+            "hotel_id": hotel.get("_id"),
+            "guest_name": details.get("guest_name"),
+            "guest_email": details.get("guest_email"),
+            "room_type": details.get("room_type"),
+            "flight_id": None,
+            "passenger_name": None,
+            "passenger_email": None,
+            "hotel_results": [],
+            "flight_results": [],
+            "last_hotel_results": state.get("last_hotel_results", []),
+            "last_flight_results": state.get("last_flight_results", []),
+            "pending_hotel_booking": pending_hotel_booking,
+            "pending_flight_booking": state.get("pending_flight_booking"),
+            "booking_confirmed": True,
+            "response_text": "",
+        }
+
+    origin = None
+    destination = None
     
     system_prompt = get_system_prompt_with_history("\n".join(history_messages))
 
@@ -149,6 +310,10 @@ def router(state: GraphState) -> dict:
         extracted = travel_extractor.invoke(invocation_messages)
 
         data = extracted.dict()
+        origin = _normalize_airport(data.get("origin"))
+        destination = _normalize_airport(data.get("destination"))
+        print("Router extraction debug:", data)
+        print("Router normalized route debug:", {"origin": origin, "destination": destination})
 
     except Exception:
         data = {
@@ -177,8 +342,8 @@ def router(state: GraphState) -> dict:
         "check_in": data.get("check_in"),
         "check_out": data.get("check_out"),
 
-        "origin": data.get("origin"),
-        "destination": data.get("destination"),
+        "origin": origin,
+        "destination": destination,
         "flight_date": data.get("flight_date"),
 
         "hotel_id": data.get("hotel_id"),
@@ -194,8 +359,6 @@ def router(state: GraphState) -> dict:
         "flight_results": [],
         "response_text": "",
     }
-
-
 
 def _format_hotel(hotel: dict) -> str:
     name = hotel.get("name", "Unknown hotel")
@@ -220,7 +383,6 @@ def _format_hotel(hotel: dict) -> str:
         f"{stars} stars - {currency} {price}/night - "
         f"{available} rooms"
     )
-
 
 def _format_flight(flight: dict) -> str:
     airline = flight.get("airline", "Unknown airline")
@@ -272,20 +434,48 @@ def _format_flight(flight: dict) -> str:
         f"- {currency} {price} - {seats} seats"
     )
 
-
-
 def hotel_node(state: GraphState) -> dict:
     city = state.get("city")
     check_in = state.get("check_in")
     check_out = state.get("check_out")
+    print("Hotel node last hotels:", len(state.get("last_hotel_results", [])))
 
     if state.get("sub_action") == "book":
         hotel_id = state.get("hotel_id")
+        pending_booking = state.get("pending_hotel_booking") or {}
+
+        selected_hotel = _resolve_hotel_selection(
+            hotel_id,
+            state.get("last_hotel_results", []),
+        ) or pending_booking.get("hotel")
+
+
+        if selected_hotel:
+            hotel_id = selected_hotel.get("_id")
+
+        print("Resolved selected hotel:", selected_hotel.get("name") if selected_hotel else None)
         guest_name = state.get("guest_name")
         guest_email = state.get("guest_email")
         room_type = state.get("room_type")
         check_in_date = state.get("check_in")
         check_out_date = state.get("check_out")
+
+        pending_details = pending_booking.get("details", {})
+
+        guest_name = guest_name or pending_details.get("guest_name")
+        guest_email = guest_email or pending_details.get("guest_email")
+        room_type = room_type or pending_details.get("room_type")
+        check_in_date = check_in_date or pending_details.get("check_in_date")
+        check_out_date = check_out_date or pending_details.get("check_out_date")
+
+        print("Booking details after pending merge:", {
+            "hotel_id": hotel_id,
+            "guest_name": guest_name,
+            "guest_email": guest_email,
+            "check_in_date": check_in_date,
+            "check_out_date": check_out_date,
+            "room_type": room_type,
+        })
 
         missing = [
             field
@@ -301,11 +491,59 @@ def hotel_node(state: GraphState) -> dict:
         ]
 
         if missing:
+            pending_hotel_booking = None
+
+            if selected_hotel and not state.get("booking_confirmed"):
+                pending_hotel_booking = {
+                    "hotel": selected_hotel,
+                    "details": {
+                        "hotel_id": hotel_id,
+                        "guest_name": guest_name,
+                        "guest_email": guest_email,
+                        "check_in_date": check_in_date,
+                        "check_out_date": check_out_date,
+                        "room_type": room_type,
+                    },
+                    "awaiting_confirmation": False,
+                }
+
             return {
                 "hotel_results": [],
                 "flight_results": [],
+                "pending_hotel_booking": pending_hotel_booking,
                 "response_text": _missing_details_message("hotel booking", missing),
             }
+        
+        details = {
+            "hotel_id": hotel_id,
+            "guest_name": guest_name,
+            "guest_email": guest_email,
+            "check_in_date": check_in_date,
+            "check_out_date": check_out_date,
+            "room_type": room_type,
+        }
+
+        if selected_hotel and not state.get("booking_confirmed"):
+            pending_hotel_booking = {
+                "hotel": selected_hotel,
+                "details": details,
+                "awaiting_confirmation": True,
+            }
+
+            return {
+                "hotel_results": [],
+                "flight_results": [],
+                "pending_hotel_booking": pending_hotel_booking,
+                "response_text": _hotel_confirmation_message(selected_hotel, details),
+            }
+
+        print("Hotel booking debug:", {
+            "hotel_id": hotel_id,
+            "guest_email": guest_email,
+            "check_in_date": check_in_date,
+            "check_out_date": check_out_date,
+            "room_type": room_type,
+        })
 
         try:
             result = book_hotel.invoke(
@@ -318,13 +556,15 @@ def hotel_node(state: GraphState) -> dict:
                     "room_type": room_type,
                 }
             )
-        except Exception:
+        except Exception as exc:
+            print(f"Hotel booking failed: {type(exc).__name__}: {exc}")
             return _service_error_response("hotel")
 
     elif state.get("sub_action") == "list_all":
         try:
             result = get_hotels.invoke({})
-        except Exception:
+        except Exception as exc:
+            print(f"Failed to list hotels: {type(exc).__name__}: {exc}")
             return _service_error_response("hotel")
 
     elif city:
@@ -340,7 +580,9 @@ def hotel_node(state: GraphState) -> dict:
 
         try:
             result = search_hotel.invoke(params)
-        except Exception:
+            print("Hotel search debug:", params)
+        except Exception as exc:
+            print(f"Failed to search hotels: {type(exc).__name__}: {exc}")
             return _service_error_response("hotel")
 
     else:
@@ -352,7 +594,7 @@ def hotel_node(state: GraphState) -> dict:
 
     if state.get("sub_action") == "book":
         if isinstance(result, dict):
-            confirmation = result.get("message") or result.get("status") or "Hotel booking completed."
+            confirmation = _hotel_booking_success_message(result, selected_hotel)
             return {
                 "hotel_results": [],
                 "flight_results": [],
@@ -388,7 +630,6 @@ def hotel_node(state: GraphState) -> dict:
         "response_text": "",
     }
 
-
 def flight_node(state: GraphState) -> dict:
     origin = state.get("origin")
     destination = state.get("destination")
@@ -416,6 +657,12 @@ def flight_node(state: GraphState) -> dict:
                 "response_text": _missing_details_message("flight booking", missing),
             }
 
+        print("Flight booking debug:", {
+            "flight_id": flight_id,
+            "passenger_name": passenger_name,
+            "passenger_email": passenger_email,
+        })
+
         try:
             result = book_flight.invoke(
                 {
@@ -424,13 +671,15 @@ def flight_node(state: GraphState) -> dict:
                     "passenger_email": passenger_email,
                 }
             )
-        except Exception:
+        except Exception as exc:
+            print(f"Failed to book flight: {type(exc).__name__}: {exc}")
             return _service_error_response("flight")
 
     elif state.get("sub_action") == "list_all":
         try:
             result = get_flights.invoke({})
-        except Exception:
+        except Exception as exc:
+            print(f"Failed to list flights: {type(exc).__name__}: {exc}")
             return _service_error_response("flight")
 
     elif origin and destination:
@@ -444,7 +693,9 @@ def flight_node(state: GraphState) -> dict:
 
         try:
             result = search_flights.invoke(params)
-        except Exception:
+            print("Flight search debug:", params)
+        except Exception as exc:
+            print(f"Failed to search flights: {type(exc).__name__}: {exc}")
             return _service_error_response("flight")
 
     elif origin or destination:
@@ -507,7 +758,6 @@ def flight_node(state: GraphState) -> dict:
         "response_text": "",
     }
 
-
 def unknown_node(state: GraphState) -> dict:
     user_message = state["messages"][-1]
     history_messages = state["messages"][:-1]
@@ -531,13 +781,12 @@ def unknown_node(state: GraphState) -> dict:
         }
 
     except Exception as e:
+        print(f"Failed to generate response: {type(e).__name__}: {e}")
         return {
             "hotel_results": [],
             "flight_results": [],
             "response_text": f"I couldn't understand your request clearly. Error: {str(e)}",
         }
-
-
 
 def generate_response(state: GraphState) -> dict:
     if state.get("response_text"):
@@ -573,7 +822,6 @@ def generate_response(state: GraphState) -> dict:
     return {
         "response_text": "I couldn't find matching travel options."
     }
-
 
 def route_after_extraction(state: GraphState) -> str:
     intent = state.get("intent", "unknown")
