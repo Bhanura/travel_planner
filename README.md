@@ -401,6 +401,26 @@ Recommended production checks:
 - Flight booking does not yet have the same natural selection flow as hotel booking.
 - The app is not yet deployed.
 
+## Secret Scanning
+
+TripWeaver uses Gitleaks to scan the repository and complete Git history for accidentally committed API keys, tokens, passwords, and other credentials.
+
+Verify the installed scanner:
+
+```bash
+gitleaks version
+```
+
+Scan all Git refs and redact any detected values from terminal output:
+
+```bash
+gitleaks git --redact=100 --no-banner --verbose --log-opts="--all" .
+```
+
+A successful scan exits with code `0`. Possible findings exit with code `1` and must be reviewed. If a real credential is detected, revoke or rotate it before cleaning the repository history. Never treat deleting the latest file as sufficient, because the credential may remain recoverable from an earlier commit.
+
+The local `.env` file is ignored and must never be committed. `.env.example` contains names and safe placeholder/configuration values only.
+
 ## Notes
 
 Short explanation:
