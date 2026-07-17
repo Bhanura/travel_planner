@@ -109,6 +109,28 @@ source env/bin/activate
 pip install -r requirements.txt
 ```
 
+### Dependency Management
+
+TripWeaver uses two runtime dependency files:
+
+- `requirements.in` contains the direct dependencies intentionally used by the application.
+- `requirements.txt` is generated from `requirements.in` and pins all direct and transitive dependency versions for reproducible CI and deployment.
+
+Install the tested runtime environment with:
+
+```bash
+pip install -r requirements.txt
+```
+
+Do not edit generated dependency versions directly in `requirements.txt`. To update dependencies, edit `requirements.in`, install the tested compiler version, and regenerate the lock:
+
+```bash
+python -m pip install pip-tools==7.5.3
+python -m piptools compile requirements.in --output-file requirements.txt --resolver=backtracking --strip-extras
+```
+
+The lock was generated with Python 3.11. Windows-only MCP support is protected by a platform marker, so `pywin32` is skipped on Linux deployment hosts. A clean Linux installation will also be verified by CI.
+
 ### 3. Configure Environment Variables
 
 Copy `.env.example` to `.env` in the project root, then update the values for your local setup.
