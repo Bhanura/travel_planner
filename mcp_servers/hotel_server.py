@@ -7,10 +7,14 @@ from mcp_servers.provider_utils import get_json, post_json, extract_list
 
 load_dotenv()
 
-HOTEL_API_BASE = os.getenv(
-    "HOTEL_PROVIDER_BASE_URL",
-    "https://standing-fish-574.convex.site/hotels",
-)
+HOTEL_API_BASE = os.getenv("HOTEL_PROVIDER_BASE_URL", "").strip()
+
+if not HOTEL_API_BASE:
+    raise RuntimeError(
+        "HOTEL_PROVIDER_BASE_URL is required but was not configured."
+    )
+
+HOTEL_API_BASE = HOTEL_API_BASE.rstrip("/")
 
 mcp = FastMCP("tripweaver-hotel-server")
 
