@@ -29,11 +29,29 @@ Activate the virtual environment:
 pip install -r requirements.txt
 ```
 
-### 3. Configure API Key
-Create a `.env` file in the project root and add your OpenAI API key:
+### 3. Configure Environment Variables
+Copy `.env.example` to `.env` in the project root, then update the values for your local setup.
+
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
 ```
-OPENAI_API_KEY=your_actual_api_key_here
+
+macOS/Linux:
+
+```bash
+cp .env.example .env
 ```
+
+Environment variables:
+
+- `OPENAI_API_KEY`: API key used by the LLM.
+- `OPENAI_MODEL`: OpenAI chat model name.
+- `HOTEL_PROVIDER_BASE_URL`: Hotel provider base URL used by the hotel MCP server.
+- `FLIGHT_PROVIDER_BASE_URL`: Flight provider base URL used by the flight MCP server.
+- `TRAVEL_PLANNER_API_URL`: Backend URL used by the Gradio frontend.
+- `ALLOWED_ORIGINS`: Comma-separated frontend origins allowed by FastAPI CORS.
 
 ### 4. Run the Backend
 ```bash
@@ -70,7 +88,7 @@ curl -X POST http://localhost:8000/chat \
 
 ## Gradio Chat UI
 
-A simple Gradio chat interface is available in `gradio_app.py`.
+A Gradio chat interface is available in `frontend.py`.
 
 Run the FastAPI backend first:
 
@@ -81,7 +99,7 @@ python main.py
 Then start the Gradio UI:
 
 ```bash
-python gradio_app.py
+python frontend.py
 ```
 
 Open the local Gradio URL shown in the terminal and ask for flights or hotels.
