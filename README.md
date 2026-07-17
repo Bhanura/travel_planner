@@ -182,11 +182,32 @@ Manual MCP server startup waits for stdio MCP input. Pressing `Ctrl+C` during a 
 
 | Endpoint | Method | Description |
 | --- | --- | --- |
-| `/` | GET | Basic backend hello response. |
+| `/` | GET | Identifies the TripWeaver API and links to health and API documentation. |
+| `/health` | GET | Reports backend liveness and safe configuration readiness without calling external services. |
 | `/hotels` | GET | Development/debug endpoint that lists hotels through the hotel tool. |
 | `/flights` | GET | Development/debug endpoint that lists flights through the flight tool. |
 | `/chat` | POST | Normal JSON chat endpoint. |
 | `/chat/stream` | POST | NDJSON streaming chat endpoint used by the frontend. |
+
+### GET `/health`
+
+The health endpoint returns HTTP 200 while the FastAPI application is running. It reports whether required LLM, hotel-provider, and flight-provider configuration is present without exposing API keys, provider URLs, or other secret values.
+
+The endpoint does not call MCP servers or external providers. A missing dependency is reported as `degraded` so one unavailable travel service does not make unrelated agents unusable.
+
+Example:
+
+```json
+{
+  "status": "healthy",
+  "service": "tripweaver-backend",
+  "dependencies": {
+    "llm_configured": true,
+    "hotel_provider_configured": true,
+    "flight_provider_configured": true
+  }
+}
+```
 
 ### POST `/chat`
 

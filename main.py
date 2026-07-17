@@ -128,8 +128,39 @@ def _build_initial_state(message: str, session_id: str | None) -> dict:
     }
 
 @app.get("/")
-async def hello():
-    return {"message": "Hello, World!"}
+async def root():
+    return {
+        "service": "TripWeaver API",
+        "status": "running",
+        "health": "/health",
+        "docs": "/docs",
+    }
+
+@app.get("/health")
+async def health():
+    dependencies = {
+        "llm_configured": bool(
+            os.getenv("OPENAI_API_KEY", "").strip()
+        ),
+        "hotel_provider_configured": bool(
+            os.getenv("HOTEL_PROVIDER_BASE_URL", "").strip()
+        ),
+        "flight_provider_configured": bool(
+            os.getenv("FLIGHT_PROVIDER_BASE_URL", "").strip()
+        ),
+    }
+
+    status = (
+        "healthy"
+        if all(dependencies.values())
+        else "degraded"
+    )
+
+    return {
+        "status": status,
+        "service": "tripweaver-backend",
+        "dependencies": dependencies,
+    }
 
 @app.get("/hotels")
 async def list_hotels():
