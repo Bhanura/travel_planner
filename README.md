@@ -133,7 +133,7 @@ Environment variables:
 - `HOTEL_PROVIDER_BASE_URL`: Hotel provider base URL used by the hotel MCP server.
 - `FLIGHT_PROVIDER_BASE_URL`: Flight provider base URL used by the flight MCP server.
 - `TRAVEL_PLANNER_API_URL`: Backend URL used by the Gradio frontend.
-- `ALLOWED_ORIGINS`: Comma-separated frontend origins allowed by FastAPI CORS.
+- `ALLOWED_ORIGINS`: Required comma-separated explicit frontend origins allowed by FastAPI CORS. Wildcard `*` is rejected.
 
 The real `.env` file is ignored by Git. Do not commit API keys.
 
@@ -368,7 +368,7 @@ For deployment:
 Recommended production checks:
 
 - Use HTTPS URLs.
-- Do not use `ALLOWED_ORIGINS=*` with credentials in production.
+- Configure `ALLOWED_ORIGINS` with the exact deployed frontend origin. Wildcard origins are rejected.
 - Keep `.env` and API keys out of Git.
 - Replace debug `print(...)` calls with structured logging before production use.
 

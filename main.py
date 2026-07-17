@@ -43,12 +43,33 @@ def _get_session(session_id: str | None) -> dict:
 
     return conversation_sessions[safe_session_id]
 
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", "").strip()
+
+if not allowed_origins_raw:
+    raise RuntimeError(
+        "ALLOWED_ORIGINS is required but was not configured."
+    )
+
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in allowed_origins_raw.split(",")
+    if origin.strip()
+]
+
+if not ALLOWED_ORIGINS:
+    raise RuntimeError(
+        "ALLOWED_ORIGINS must contain at least one origin."
+    )
+
+if "*" in ALLOWED_ORIGINS:
+    raise RuntimeError(
+        "ALLOWED_ORIGINS must use explicit origins; wildcard '*' is not allowed."
+    )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
