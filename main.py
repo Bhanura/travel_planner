@@ -1,13 +1,17 @@
 import json
 import os
 import logging
+
+import gradio as gr
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+
 from entity import ChatRequest, ChatResponse
 from agents.tools import get_hotels, get_flights
 from agents.graph import graph
+from frontend import demo as frontend_demo
 
 conversation_sessions = {}
 
@@ -329,6 +333,13 @@ async def chat_stream(request: ChatRequest):
         event_generator(),
         media_type="application/x-ndjson",
     )
+
+app = gr.mount_gradio_app(
+    app,
+    frontend_demo,
+    path="/app",
+)
+
 
 if __name__ == "__main__":
     import uvicorn

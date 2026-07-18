@@ -8,7 +8,14 @@ from html import escape
 
 load_dotenv()
 
-API_BASE_URL = os.environ.get("TRAVEL_PLANNER_API_URL", "http://127.0.0.1:8000").rstrip("/")
+internal_port = os.environ.get("PORT", "8000")
+default_api_url = f"http://127.0.0.1:{internal_port}"
+
+API_BASE_URL = os.environ.get(
+    "TRAVEL_PLANNER_API_URL",
+    default_api_url,
+).rstrip("/")
+
 CHAT_URL = f"{API_BASE_URL}/chat"
 STREAM_URL = f"{API_BASE_URL}/chat/stream"
 
@@ -439,4 +446,10 @@ demo = main()
 
 
 if __name__ == "__main__":
-    demo.launch(css=APP_CSS)
+    port = int(os.environ.get("PORT", "7860"))
+
+    demo.launch(
+        css=APP_CSS,
+        server_name="0.0.0.0",
+        server_port=port,
+    )
