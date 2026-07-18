@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: tripweaver-backend-staging-bhanu
+    runtime: python
+    plan: free
+    region: singapore
+    branch: main
+
+    buildCommand: >-
+      python -m pip install
+      --disable-pip-version-check
+      -r requirements.txt
+
+    startCommand: >-
+      python -m uvicorn main:app
+      --host 0.0.0.0
+      --port $PORT
+
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+
+      - key: LOG_LEVEL
+        value: INFO
+
+      - key: OPENAI_API_KEY
+        sync: false
+
+      - key: HOTEL_PROVIDER_BASE_URL
+        sync: false
+
+      - key: FLIGHT_PROVIDER_BASE_URL
+        sync: false
+
+      - key: ALLOWED_ORIGINS
+        sync: false
