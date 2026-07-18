@@ -151,7 +151,7 @@ def build_demo() -> gr.Blocks:
             inputs=[message, chatbot, session_id, results_state],
             outputs=[chatbot, message, progress, results, results_state],
         )
-        
+
         message.submit(
             respond,
             inputs=[message, chatbot, session_id, results_state],
