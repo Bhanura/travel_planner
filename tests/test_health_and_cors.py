@@ -65,3 +65,11 @@ def test_cors_allows_only_configured_origin():
 
     assert denied.status_code == 400
     assert denied.headers.get("access-control-allow-origin") is None
+
+
+def test_gradio_frontend_is_mounted():
+    response = client.get("/app/")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "Trip Weaver" in response.text
