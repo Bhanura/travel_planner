@@ -34,3 +34,163 @@ def iter_text_chunks(
 
     if buffer:
         yield buffer
+
+AGENT_LABELS = {
+    "hotel": "Hotel Agent",
+    "flight": "Flight Agent",
+    "unknown": "General Travel Agent",
+}
+
+ACTION_LABELS = {
+    "search": "Search request",
+    "list_all": "Listing request",
+    "book": "Booking request",
+    "general": "General travel request",
+}
+
+
+def activities_from_graph_update(
+    node_name: str,
+    update: dict,
+) -> list[dict]:
+    """
+    Convert a LangGraph node update into traveller-safe
+    Agent Journey activity events.
+
+    Never return the raw graph state, prompts, personal
+    details, or exception information.
+    """
+    if not isinstance(update, dict):
+        return []
+
+    if node_name == "router":
+        intent = str(
+            update.get("intent", "unknown")
+        )
+        sub_action = str(
+            update.get("sub_action", "general")
+        )
+
+        agent_label = AGENT_LABELS.get(
+            intent,
+            "General Travel Agent",
+        )
+        action_label = ACTION_LABELS.get(
+            sub_action,
+            "Travel request",
+        )
+
+        return [
+            {
+                "type": "activity",
+                "stage": "routing",
+                "message": f"{action_label} identified.",
+            },
+            {
+                "type": "activity",
+                "stage": "routing",
+                "message": f"{agent_label} selected.",
+            },
+        ]
+
+    if node_name == "hotel_node":
+        hotel_results = (
+            update.get("hotel_results")
+            or []
+        )
+
+        if hotel_results:
+            return [{
+                "type": "activity",
+                "stage": "searching",
+                "message": (
+                    f"{len(hotel_results)} matching "
+                    "hotel options found."
+                ),
+            }]
+
+        return [
+            _agent_response_activity(
+                "Hotel Agent",
+                update,
+            )
+        ]
+
+    if node_name == "flight_node":
+        flight_results = (
+            update.get("flight_results")
+            or []
+        )
+
+        if flight_results:
+            return [{
+                "type": "activity",
+                "stage": "searching",
+                "message": (
+                    f"{len(flight_results)} matching "
+                    "flight options found."
+                ),
+            }]
+
+        return [
+            _agent_response_activity(
+                "Flight Agent",
+                update,
+            )
+        ]
+
+    if node_name == "unknown_node":
+        return [{
+            "type": "activity",
+            "stage": "responding",
+            "message": (
+                "General Travel Agent prepared a response."
+            ),
+        }]
+
+    if node_name == "generate_response":
+        return [{
+            "type": "activity",
+            "stage": "responding",
+            "message": "Preparing your final answer.",
+        }]
+
+    return []
+
+
+def _agent_response_activity(
+    agent_label: str,
+    update: dict,
+) -> dict:
+    """
+    Describe an agent outcome without exposing the
+    response body or internal state.
+    """
+    response_text = str(
+        update.get("response_text", "")
+    )
+
+    if "I still need" in response_text:
+        return {
+            "type": "activity",
+            "stage": "clarifying",
+            "message": (
+                f"{agent_label} needs more details."
+            ),
+        }
+
+    if "trouble reaching" in response_text:
+        return {
+            "type": "activity",
+            "stage": "error",
+            "message": (
+                f"{agent_label} could not reach "
+                "its travel service."
+            ),
+        }
+
+    return {
+        "type": "activity",
+        "stage": "responding",
+        "message": f"{agent_label} completed its step.",
+    }

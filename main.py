@@ -18,6 +18,7 @@ from frontend import (
     demo as frontend_demo,
 )
 from streaming_events import (
+    activities_from_graph_update,
     encode_stream_event,
     iter_text_chunks,
 )
@@ -93,38 +94,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def _activity_from_result(result: dict) -> dict:
-    response_text = result.get("response_text", "")
-    sub_action = result.get("sub_action", "")
-
-    if "I still need" in response_text:
-        return {
-            "stage": "clarifying",
-            "message": "Checking what details are missing...",
-        }
-
-    if sub_action == "book":
-        return {
-            "stage": "booking",
-            "message": "Processing your booking request...",
-        }
-
-    if result.get("hotel_results"):
-        return {
-            "stage": "searching",
-            "message": "Found hotel options.",
-        }
-
-    if result.get("flight_results"):
-        return {
-            "stage": "searching",
-            "message": "Found flight options.",
-        }
-
-    return {
-        "stage": "responding",
-        "message": "Preparing your answer...",
-    }
 
 def _build_initial_state(message: str, session_id: str | None) -> dict:
     session = _get_session(session_id)
@@ -263,7 +232,7 @@ async def chat(request: ChatRequest):
 
 @app.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
-    def event_generator():
+    async def event_generator():
         try:
             yield encode_stream_event({
                 "type": "activity",
@@ -271,23 +240,46 @@ async def chat_stream(request: ChatRequest):
                 "message": "Understanding your request...",
             })
 
-            initial_state = _build_initial_state(request.message, request.session_id)
+            initial_state = _build_initial_state(
+                request.message,
+                request.session_id,
+            )
 
-            yield encode_stream_event({
-                "type": "activity",
-                "stage": "routing",
-                "message": "Choosing the right travel agent...",
-            })
+            result = initial_state.copy()
 
-            result = graph.invoke(initial_state)
+            async for stream_part in graph.astream(
+                initial_state,
+                stream_mode="updates",
+                version="v2",
+            ):
+                if stream_part.get("type") != "updates":
+                    continue
 
-            activity = _activity_from_result(result)
+                node_updates = stream_part.get(
+                    "data",
+                    {},
+                )
 
-            yield encode_stream_event({
-                "type": "activity",
-                "stage": activity["stage"],
-                "message": activity["message"],
-            })
+                if not isinstance(node_updates, dict):
+                    continue
+
+                for node_name, node_update in node_updates.items():
+                    if not isinstance(node_update, dict):
+                        continue
+
+                    result.update(node_update)
+
+                    activity_events = (
+                        activities_from_graph_update(
+                            node_name,
+                            node_update,
+                        )
+                    )
+
+                    for activity_event in activity_events:
+                        yield encode_stream_event(
+                            activity_event
+                        )
 
             response_text = result.get(
                 "response_text",

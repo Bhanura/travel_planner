@@ -3,31 +3,78 @@ import json
 from fastapi.testclient import TestClient
 
 import main
+from streaming_events import activities_from_graph_update
 
 
 client = TestClient(main.app)
 
 
 class SuccessfulStreamingGraph:
-    def invoke(self, state):
-        return {
-            "response_text": (
-                "Streaming response arrives in multiple "
-                "readable chunks for the traveller."
-            ),
-            "hotel_results": [
-                {
-                    "_id": "hotel-1",
-                    "name": "Stream Hotel",
+    async def astream(
+        self,
+        state,
+        *,
+        stream_mode,
+        version,
+    ):
+        assert stream_mode == "updates"
+        assert version == "v2"
+
+        hotel_results = [
+            {
+                "_id": "hotel-1",
+                "name": "Stream Hotel",
+            }
+        ]
+
+        yield {
+            "type": "updates",
+            "ns": (),
+            "data": {
+                "router": {
+                    "intent": "hotel",
+                    "sub_action": "search",
                 }
-            ],
-            "flight_results": [],
+            },
+        }
+        yield {
+            "type": "updates",
+            "ns": (),
+            "data": {
+                "hotel_node": {
+                    "hotel_results": hotel_results,
+                    "flight_results": [],
+                }
+            },
+        }
+        yield {
+            "type": "updates",
+            "ns": (),
+            "data": {
+                "generate_response": {
+                    "response_text": (
+                        "Streaming response arrives in multiple "
+                        "readable chunks for the traveller."
+                    ),
+                }
+            },
         }
 
 
 class FailingStreamingGraph:
-    def invoke(self, state):
-        raise RuntimeError("private streaming infrastructure detail")
+    async def astream(
+        self,
+        state,
+        *,
+        stream_mode,
+        version,
+    ):
+        if state:
+            raise RuntimeError(
+                "private streaming infrastructure detail"
+            )
+
+        yield {}
 
 
 def parse_events(response):
@@ -72,14 +119,32 @@ def test_stream_returns_events_in_expected_order(monkeypatch):
     message_index = event_types.index("message")
     done_index = event_types.index("done")
 
-    assert event_types[:3] == [
-        "activity",
-        "activity",
-        "activity",
+    activity_events = [
+        event
+        for event in events
+        if event["type"] == "activity"
     ]
-    assert events[0]["stage"] == "routing"
-    assert events[1]["stage"] == "routing"
-    assert events[2]["stage"] == "searching"
+
+    assert [
+        event["stage"]
+        for event in activity_events
+    ] == [
+        "routing",
+        "routing",
+        "routing",
+        "searching",
+        "responding",
+    ]
+    assert [
+        event["message"]
+        for event in activity_events
+    ] == [
+        "Understanding your request...",
+        "Search request identified.",
+        "Hotel Agent selected.",
+        "1 matching hotel options found.",
+        "Preparing your final answer.",
+    ]
     assert len(delta_events) >= 2
     assert all(
         index < message_index
@@ -118,12 +183,31 @@ def test_stream_returns_safe_error_then_done(monkeypatch):
     assert response.status_code == 200
     assert [event["type"] for event in events] == [
         "activity",
-        "activity",
         "error",
         "done",
     ]
 
-    error_message = events[2]["message"]
+    error_message = events[1]["message"]
 
     assert "private streaming infrastructure detail" not in error_message
     assert "RuntimeError" not in error_message
+
+def test_activity_mapper_does_not_expose_private_state():
+    events = activities_from_graph_update(
+        "router",
+        {
+            "intent": "hotel",
+            "sub_action": "search",
+            "guest_email": "private@example.com",
+            "system_prompt": "private routing instructions",
+        },
+    )
+
+    public_output = json.dumps(events)
+
+    assert "private@example.com" not in public_output
+    assert "private routing instructions" not in public_output
+    assert [event["message"] for event in events] == [
+        "Search request identified.",
+        "Hotel Agent selected.",
+    ]
