@@ -1,4 +1,3 @@
-import json
 import os
 import logging
 
@@ -18,6 +17,11 @@ from frontend import (
     STATIC_DIR,
     demo as frontend_demo,
 )
+from streaming_events import (
+    encode_stream_event,
+    iter_text_chunks,
+)
+
 conversation_sessions = {}
 
 app = FastAPI()
@@ -88,9 +92,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-def _stream_event(event: dict) -> str:
-    return json.dumps(event) + "\n"
 
 def _activity_from_result(result: dict) -> dict:
     response_text = result.get("response_text", "")
@@ -264,7 +265,7 @@ async def chat(request: ChatRequest):
 async def chat_stream(request: ChatRequest):
     def event_generator():
         try:
-            yield _stream_event({
+            yield encode_stream_event({
                 "type": "activity",
                 "stage": "routing",
                 "message": "Understanding your request...",
@@ -272,7 +273,7 @@ async def chat_stream(request: ChatRequest):
 
             initial_state = _build_initial_state(request.message, request.session_id)
 
-            yield _stream_event({
+            yield encode_stream_event({
                 "type": "activity",
                 "stage": "routing",
                 "message": "Choosing the right travel agent...",
@@ -282,7 +283,7 @@ async def chat_stream(request: ChatRequest):
 
             activity = _activity_from_result(result)
 
-            yield _stream_event({
+            yield encode_stream_event({
                 "type": "activity",
                 "stage": activity["stage"],
                 "message": activity["message"],
@@ -320,25 +321,32 @@ async def chat_stream(request: ChatRequest):
             if result.get("booking_confirmed"):
                 session["pending_hotel_booking"] = None
                 logger.debug("Cleared pending hotel booking state during stream")
-            yield _stream_event({
+
+            for text_chunk in iter_text_chunks(response_text):
+                yield encode_stream_event({
+                    "type": "delta",
+                    "content": text_chunk,
+                })
+
+            yield encode_stream_event({
                 "type": "message",
                 "content": response_text,
                 "hotels": result.get("hotel_results", []) or None,
                 "flights": result.get("flight_results", []) or None,
             })
 
-            yield _stream_event({"type": "done"})
+            yield encode_stream_event({"type": "done"})
 
         except Exception:
             logger.exception("Unexpected chat stream error")
-            yield _stream_event({
+            yield encode_stream_event({
                 "type": "error",
                 "message": (
                     "Something went wrong while streaming your trip plan. "
                     "Please try again in a moment."
                 ),
             })
-            yield _stream_event({"type": "done"})
+            yield encode_stream_event({"type": "done"})
 
     return StreamingResponse(
         event_generator(),
