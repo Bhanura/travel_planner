@@ -57,122 +57,340 @@ def format_chat_response(data: dict[str, Any]) -> str:
 def render_progress(events, done=False, error=False):
     if not events:
         return """
-        <div class="progress-panel">
-            <div class="progress-title">Agent progress</div>
-            <div class="progress-empty">No active request.</div>
-        </div>
+        <section
+            class="tw-panel tw-progress-panel"
+            aria-label="Agent progress"
+            aria-live="polite"
+        >
+            <div class="tw-panel-header">
+                <div class="tw-panel-heading">
+                    <span class="tw-panel-icon">✦</span>
+                    <div>
+                        <div class="tw-panel-kicker">LIVE WORKFLOW</div>
+                        <div class="tw-panel-title">Agent journey</div>
+                    </div>
+                </div>
+                <span class="tw-status-pill is-idle">Ready</span>
+            </div>
+
+            <div class="tw-empty-state">
+                <div class="tw-empty-icon">🧭</div>
+                <div class="tw-empty-title">Ready to explore</div>
+                <div class="tw-empty-copy">
+                    Your agent activity will appear here
+                    after you send a travel request.
+                </div>
+            </div>
+        </section>
         """
 
     rows = []
 
     for index, event in enumerate(events):
         is_last = index == len(events) - 1
-        stage = escape(event.get("stage", "working"))
-        message = escape(event.get("message", "Working..."))
+        stage_value = str(event.get("stage", "working"))
+        stage = escape(
+            stage_value.replace("_", " ").title()
+        )
+        message = escape(
+            str(event.get("message", "Working..."))
+        )
 
         if error and is_last:
-            icon = '<div class="progress-error">!</div>'
+            status_class = "is-error"
+            status_content = "!"
         elif done or not is_last:
-            icon = '<div class="progress-check">&#10003;</div>'
+            status_class = "is-complete"
+            status_content = "✓"
         else:
-            icon = '<div class="progress-spinner"></div>'
+            status_class = "is-active"
+            status_content = ""
 
         rows.append(
             f"""
-            <div class="progress-step">
-                {icon}
-                <div>
-                    <div class="progress-stage">{stage}</div>
-                    <div class="progress-message">{message}</div>
+            <div class="tw-progress-step">
+                <div class="tw-progress-track">
+                    <div class="tw-step-icon {status_class}">
+                        {status_content}
+                    </div>
+                </div>
+
+                <div class="tw-step-copy">
+                    <div class="tw-step-stage">{stage}</div>
+                    <div class="tw-step-message">{message}</div>
                 </div>
             </div>
             """
         )
 
+    pill_class = "is-error" if error else (
+        "is-complete" if done else "is-active"
+    )
+    pill_text = "Needs attention" if error else (
+        "Complete" if done else "Working"
+    )
+
     return f"""
-    <div class="progress-panel">
-        <div class="progress-title">Agent progress</div>
-        {''.join(rows)}
-    </div>
+    <section
+        class="tw-panel tw-progress-panel"
+        aria-label="Agent progress"
+        aria-live="polite"
+    >
+        <div class="tw-panel-header">
+            <div class="tw-panel-heading">
+                <span class="tw-panel-icon">✦</span>
+                <div>
+                    <div class="tw-panel-kicker">LIVE WORKFLOW</div>
+                    <div class="tw-panel-title">Agent journey</div>
+                </div>
+            </div>
+
+            <span class="tw-status-pill {pill_class}">
+                {pill_text}
+            </span>
+        </div>
+
+        <div class="tw-progress-list">
+            {''.join(rows)}
+        </div>
+    </section>
     """
 
 def render_results_panel(results_state):
+    results_state = results_state or {
+        "hotels": [],
+        "flights": [],
+        "expanded": False,
+    }
+
     hotels = results_state.get("hotels", [])
     flights = results_state.get("flights", [])
     expanded = results_state.get("expanded", False)
 
     if not hotels and not flights:
         return """
-        <div class="progress-panel">
-            <div class="progress-title">Travel results</div>
-            <div class="progress-empty">No hotel or flight results yet.</div>
-        </div>
+        <section
+            class="tw-panel tw-results-panel"
+            aria-label="Travel results"
+        >
+            <div class="tw-panel-header">
+                <div class="tw-panel-heading">
+                    <span class="tw-panel-icon is-sunset">⌖</span>
+                    <div>
+                        <div class="tw-panel-kicker">YOUR MATCHES</div>
+                        <div class="tw-panel-title">Travel results</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tw-empty-state">
+                <div class="tw-empty-icon">🗺️</div>
+                <div class="tw-empty-title">No matches yet</div>
+                <div class="tw-empty-copy">
+                    Hotel and flight options will appear here
+                    after TripWeaver completes a search.
+                </div>
+            </div>
+        </section>
         """
+
+    rows = []
 
     if hotels:
         items = hotels if expanded else hotels[:5]
-        rows = []
+        result_kind = "Hotel options"
 
-        for hotel in items:
-            name = escape(str(hotel.get("name", "Unknown hotel")))
-            city = escape(str(hotel.get("city", "Unknown city")))
-            price = escape(str(hotel.get("pricePerNight", "N/A")))
-            currency = escape(str(hotel.get("currency", "USD")))
-            rooms = escape(str(hotel.get("availableRooms", "N/A")))
-            stars = escape(str(hotel.get("starRating", "N/A")))
+        for result_number, hotel in enumerate(items, start=1):
+            result_id = escape(
+                str(hotel.get("_id", "Not available"))
+            )
+            name = escape(
+                str(hotel.get("name", "Unknown hotel"))
+            )
+            city = escape(
+                str(hotel.get("city", "Unknown city"))
+            )
+            price = escape(
+                str(hotel.get("pricePerNight", "N/A"))
+            )
+            currency = escape(
+                str(hotel.get("currency", "USD"))
+            )
+            rooms = escape(
+                str(hotel.get("availableRooms", "N/A"))
+            )
+            stars = escape(
+                str(hotel.get("starRating", "N/A"))
+            )
 
             rows.append(
                 f"""
-                <div class="result-item">
-                    <div class="result-name">{name}</div>
-                    <div class="result-meta">{city} | {stars} stars | {currency} {price}/night | {rooms} rooms</div>
-                </div>
+                <article class="tw-result-card">
+                    <div class="tw-result-number">
+                        {result_number:02d}
+                    </div>
+
+                    <div class="tw-result-body">
+                        <div class="tw-result-topline">
+                            <div class="tw-result-name">{name}</div>
+                            <span class="tw-result-price">
+                                {currency} {price}
+                            </span>
+                        </div>
+
+                        <div class="tw-result-location">
+                            📍 {city}
+                        </div>
+
+                        <div class="tw-result-facts">
+                            <span>★ {stars} rating</span>
+                            <span>🛏 {rooms} rooms</span>
+                            <span>per night</span>
+                        </div>
+
+                        <div class="tw-result-id">
+                            Selection ID: {result_id}
+                        </div>
+                    </div>
+                </article>
                 """
             )
 
-        count_text = f"Showing {len(items)} of {len(hotels)} hotels"
+        count_text = (
+            f"Showing {len(items)} of {len(hotels)} hotels"
+        )
 
     else:
         items = flights if expanded else flights[:5]
-        rows = []
+        result_kind = "Flight options"
 
-        for flight in items:
-            airline = escape(str(flight.get("airline", "Unknown airline")))
-            number = escape(str(flight.get("flightNumber", "N/A")))
-            origin = flight.get("origin", {})
-            destination = flight.get("destination", {})
-            origin_code = escape(str(origin.get("airport", "N/A")))
-            destination_code = escape(str(destination.get("airport", "N/A")))
-            date = escape(str(flight.get("flightDate", "Unknown date")))
-            price = escape(str(flight.get("price", "N/A")))
-            currency = escape(str(flight.get("currency", "USD")))
+        for result_number, flight in enumerate(items, start=1):
+            result_id = escape(
+                str(flight.get("_id", "Not available"))
+            )
+            airline = escape(
+                str(flight.get("airline", "Unknown airline"))
+            )
+            number = escape(
+                str(flight.get("flightNumber", "N/A"))
+            )
+
+            origin = flight.get("origin", {}) or {}
+            destination = flight.get("destination", {}) or {}
+
+            origin_code = escape(
+                str(origin.get("airport", "N/A"))
+            )
+            destination_code = escape(
+                str(destination.get("airport", "N/A"))
+            )
+            date = escape(
+                str(flight.get("flightDate", "Unknown date"))
+            )
+            departure = escape(
+                str(flight.get("departureTime", "N/A"))
+            )
+            arrival = escape(
+                str(flight.get("arrivalTime", "N/A"))
+            )
+            price = escape(
+                str(flight.get("price", "N/A"))
+            )
+            currency = escape(
+                str(flight.get("currency", "USD"))
+            )
+            seats = escape(
+                str(flight.get("availableSeats", "N/A"))
+            )
 
             rows.append(
                 f"""
-                <div class="result-item">
-                    <div class="result-name">{airline} {number}</div>
-                    <div class="result-meta">{origin_code} to {destination_code} | {date} | {currency} {price}</div>
-                </div>
+                <article class="tw-result-card">
+                    <div class="tw-result-number">
+                        {result_number:02d}
+                    </div>
+
+                    <div class="tw-result-body">
+                        <div class="tw-result-topline">
+                            <div class="tw-result-name">
+                                {airline} {number}
+                            </div>
+                            <span class="tw-result-price">
+                                {currency} {price}
+                            </span>
+                        </div>
+
+                        <div class="tw-flight-route">
+                            <strong>{origin_code}</strong>
+                            <span>→</span>
+                            <strong>{destination_code}</strong>
+                        </div>
+
+                        <div class="tw-result-facts">
+                            <span>📅 {date}</span>
+                            <span>🕒 {departure}–{arrival}</span>
+                            <span>💺 {seats} seats</span>
+                        </div>
+
+                        <div class="tw-result-id">
+                            Selection ID: {result_id}
+                        </div>
+                    </div>
+                </article>
                 """
             )
 
-        count_text = f"Showing {len(items)} of {len(flights)} flights"
+        count_text = (
+            f"Showing {len(items)} of {len(flights)} flights"
+        )
 
     return f"""
-    <div class="progress-panel">
-        <div class="progress-title">Travel results</div>
-        <div class="progress-empty">{count_text}</div>
-        {''.join(rows)}
-    </div>
+    <section
+        class="tw-panel tw-results-panel"
+        aria-label="Travel results"
+    >
+        <div class="tw-panel-header">
+            <div class="tw-panel-heading">
+                <span class="tw-panel-icon is-sunset">⌖</span>
+                <div>
+                    <div class="tw-panel-kicker">YOUR MATCHES</div>
+                    <div class="tw-panel-title">{result_kind}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tw-results-summary">{count_text}</div>
+
+        <div class="tw-results-list">
+            {''.join(rows)}
+        </div>
+    </section>
     """
 
 def toggle_results(results_state):
     if results_state is None:
-        results_state = {"hotels": [], "flights": [], "expanded": False}
+        results_state = {
+            "hotels": [],
+            "flights": [],
+            "expanded": False,
+        }
 
     results_state = {
         **results_state,
-        "expanded": not results_state.get("expanded", False),
+        "expanded": not results_state.get(
+            "expanded",
+            False,
+        ),
     }
 
-    return render_results_panel(results_state), results_state
+    button_label = (
+        "Collapse results  ↑"
+        if results_state["expanded"]
+        else "See all results  ↓"
+    )
+
+    return (
+        render_results_panel(results_state),
+        results_state,
+        button_label,
+    )
