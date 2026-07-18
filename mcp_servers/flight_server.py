@@ -6,7 +6,14 @@ from mcp_servers.provider_utils import get_json, post_json, extract_list
 
 load_dotenv()
 
-FLIGHT_API_BASE = os.getenv("FLIGHT_PROVIDER_BASE_URL", "https://standing-fish-574.convex.site/flights")
+FLIGHT_API_BASE = os.getenv("FLIGHT_PROVIDER_BASE_URL", "").strip()
+
+if not FLIGHT_API_BASE:
+    raise RuntimeError(
+        "FLIGHT_PROVIDER_BASE_URL is required but was not configured."
+    )
+
+FLIGHT_API_BASE = FLIGHT_API_BASE.rstrip("/")
 
 mcp = FastMCP("tripweaver-flight-server")
 

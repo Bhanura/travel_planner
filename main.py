@@ -1,5 +1,6 @@
 import json
 import os
+import logging
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
@@ -13,6 +14,17 @@ conversation_sessions = {}
 app = FastAPI()
 
 load_dotenv()
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+numeric_log_level = getattr(logging, LOG_LEVEL, logging.INFO)
+
+logging.basicConfig(
+    level=numeric_log_level,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
+logger = logging.getLogger(__name__)
+logger.setLevel(numeric_log_level)
 
 def _empty_session() -> dict:
     return {
@@ -31,12 +43,33 @@ def _get_session(session_id: str | None) -> dict:
 
     return conversation_sessions[safe_session_id]
 
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", "").strip()
+
+if not allowed_origins_raw:
+    raise RuntimeError(
+        "ALLOWED_ORIGINS is required but was not configured."
+    )
+
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in allowed_origins_raw.split(",")
+    if origin.strip()
+]
+
+if not ALLOWED_ORIGINS:
+    raise RuntimeError(
+        "ALLOWED_ORIGINS must contain at least one origin."
+    )
+
+if "*" in ALLOWED_ORIGINS:
+    raise RuntimeError(
+        "ALLOWED_ORIGINS must use explicit origins; wildcard '*' is not allowed."
+    )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -116,8 +149,39 @@ def _build_initial_state(message: str, session_id: str | None) -> dict:
     }
 
 @app.get("/")
-async def hello():
-    return {"message": "Hello, World!"}
+async def root():
+    return {
+        "service": "TripWeaver API",
+        "status": "running",
+        "health": "/health",
+        "docs": "/docs",
+    }
+
+@app.get("/health")
+async def health():
+    dependencies = {
+        "llm_configured": bool(
+            os.getenv("OPENAI_API_KEY", "").strip()
+        ),
+        "hotel_provider_configured": bool(
+            os.getenv("HOTEL_PROVIDER_BASE_URL", "").strip()
+        ),
+        "flight_provider_configured": bool(
+            os.getenv("FLIGHT_PROVIDER_BASE_URL", "").strip()
+        ),
+    }
+
+    status = (
+        "healthy"
+        if all(dependencies.values())
+        else "degraded"
+    )
+
+    return {
+        "status": status,
+        "service": "tripweaver-backend",
+        "dependencies": dependencies,
+    }
 
 @app.get("/hotels")
 async def list_hotels():
@@ -131,12 +195,12 @@ async def list_flights():
 async def chat(request: ChatRequest):
 
     initial_state = _build_initial_state(request.message, request.session_id)
-    
+
     try:
         result = graph.invoke(initial_state)
 
-    except Exception as exc:
-        print(f"Unexpected chat graph error: {exc}")
+    except Exception:
+        logger.exception("Unexpected chat graph error")
         result = {
             "response_text": (
                 "Something went wrong while planning your trip. "
@@ -158,19 +222,22 @@ async def chat(request: ChatRequest):
     if flight_results:
         session["last_flight_results"] = flight_results
 
-    print("Stored hotel results:", len(session["last_hotel_results"]))
-    print("Stored flight results:", len(session["last_flight_results"]))
+    logger.debug(
+        "Stored hotel results: %d",
+        len(session["last_hotel_results"]),
+    )
+    logger.debug(
+        "Stored flight results: %d",
+        len(session["last_flight_results"]),
+    )
 
     if result.get("pending_hotel_booking") is not None:
         session["pending_hotel_booking"] = result.get("pending_hotel_booking")
-        print(
-            "Stored pending hotel booking:",
-            session["pending_hotel_booking"]["hotel"].get("name"),
-        )
-    
+        logger.debug("Stored pending hotel booking state")
+
     if result.get("booking_confirmed"):
         session["pending_hotel_booking"] = None
-        print("Cleared pending hotel booking")
+        logger.debug("Cleared pending hotel booking state")
 
     return ChatResponse(
         response=response_text,
@@ -222,20 +289,22 @@ async def chat_stream(request: ChatRequest):
             if flight_results:
                 session["last_flight_results"] = flight_results
 
-            print("Stored hotel results:", len(session["last_hotel_results"]))
-            print("Stored flight results:", len(session["last_flight_results"]))
+            logger.debug(
+                "Stored hotel results during stream: %d",
+                len(session["last_hotel_results"]),
+            )
+            logger.debug(
+                "Stored flight results during stream: %d",
+                len(session["last_flight_results"]),
+            )
 
             if result.get("pending_hotel_booking") is not None:
                 session["pending_hotel_booking"] = result.get("pending_hotel_booking")
-                print(
-                    "Stored pending hotel booking:",
-                    session["pending_hotel_booking"]["hotel"].get("name"),
-                )
-            
+                logger.debug("Stored pending hotel booking state during stream")
+
             if result.get("booking_confirmed"):
                 session["pending_hotel_booking"] = None
-                print("Cleared pending hotel booking")
-
+                logger.debug("Cleared pending hotel booking state during stream")
             yield _stream_event({
                 "type": "message",
                 "content": response_text,
@@ -245,8 +314,8 @@ async def chat_stream(request: ChatRequest):
 
             yield _stream_event({"type": "done"})
 
-        except Exception as exc:
-            print(f"Unexpected chat stream error: {exc}")
+        except Exception:
+            logger.exception("Unexpected chat stream error")
             yield _stream_event({
                 "type": "error",
                 "message": (

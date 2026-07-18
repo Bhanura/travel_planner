@@ -1,3 +1,4 @@
+import logging
 from typing import Optional, Literal
 
 from pydantic import BaseModel, Field
@@ -7,6 +8,8 @@ from .tools import get_hotels, search_hotel, book_hotel, get_flights, search_fli
 from .llm import llm
 from .prompts import get_system_prompt_for_unknown_node, get_system_prompt_with_history
 from .entity import GraphState
+
+logger = logging.getLogger(__name__)
 
 class TravelExtraction(BaseModel):
     intent: Literal["hotel", "flight", "unknown"] = Field(
@@ -296,7 +299,7 @@ def router(state: GraphState) -> dict:
 
     origin = None
     destination = None
-    
+
     system_prompt = get_system_prompt_with_history("\n".join(history_messages))
 
     invocation_messages = [SystemMessage(content=system_prompt)]
@@ -312,8 +315,17 @@ def router(state: GraphState) -> dict:
         data = extracted.dict()
         origin = _normalize_airport(data.get("origin"))
         destination = _normalize_airport(data.get("destination"))
-        print("Router extraction debug:", data)
-        print("Router normalized route debug:", {"origin": origin, "destination": destination})
+
+        logger.debug(
+            "Router extracted intent=%s sub_action=%s",
+            data.get("intent"),
+            data.get("sub_action"),
+        )
+        logger.debug(
+            "Router normalized flight fields: origin_present=%s destination_present=%s",
+            bool(origin),
+            bool(destination),
+        )
 
     except Exception:
         data = {
@@ -438,7 +450,10 @@ def hotel_node(state: GraphState) -> dict:
     city = state.get("city")
     check_in = state.get("check_in")
     check_out = state.get("check_out")
-    print("Hotel node last hotels:", len(state.get("last_hotel_results", [])))
+    logger.debug(
+        "Hotel node received %d prior result(s)",
+        len(state.get("last_hotel_results", [])),
+    )
 
     if state.get("sub_action") == "book":
         hotel_id = state.get("hotel_id")
@@ -453,7 +468,11 @@ def hotel_node(state: GraphState) -> dict:
         if selected_hotel:
             hotel_id = selected_hotel.get("_id")
 
-        print("Resolved selected hotel:", selected_hotel.get("name") if selected_hotel else None)
+        logger.debug(
+            "Hotel selection resolved=%s",
+            selected_hotel is not None,
+        )
+
         guest_name = state.get("guest_name")
         guest_email = state.get("guest_email")
         room_type = state.get("room_type")
@@ -468,14 +487,18 @@ def hotel_node(state: GraphState) -> dict:
         check_in_date = check_in_date or pending_details.get("check_in_date")
         check_out_date = check_out_date or pending_details.get("check_out_date")
 
-        print("Booking details after pending merge:", {
-            "hotel_id": hotel_id,
-            "guest_name": guest_name,
-            "guest_email": guest_email,
-            "check_in_date": check_in_date,
-            "check_out_date": check_out_date,
-            "room_type": room_type,
-        })
+        logger.debug(
+            (
+                "Hotel booking fields present: hotel_id=%s guest_name=%s "
+                "guest_email=%s check_in=%s check_out=%s room_type=%s"
+            ),
+            bool(hotel_id),
+            bool(guest_name),
+            bool(guest_email),
+            bool(check_in_date),
+            bool(check_out_date),
+            bool(room_type),
+        )
 
         missing = [
             field
@@ -513,7 +536,7 @@ def hotel_node(state: GraphState) -> dict:
                 "pending_hotel_booking": pending_hotel_booking,
                 "response_text": _missing_details_message("hotel booking", missing),
             }
-        
+
         details = {
             "hotel_id": hotel_id,
             "guest_name": guest_name,
@@ -537,13 +560,7 @@ def hotel_node(state: GraphState) -> dict:
                 "response_text": _hotel_confirmation_message(selected_hotel, details),
             }
 
-        print("Hotel booking debug:", {
-            "hotel_id": hotel_id,
-            "guest_email": guest_email,
-            "check_in_date": check_in_date,
-            "check_out_date": check_out_date,
-            "room_type": room_type,
-        })
+        logger.info("Invoking hotel booking MCP tool")
 
         try:
             result = book_hotel.invoke(
@@ -556,17 +573,21 @@ def hotel_node(state: GraphState) -> dict:
                     "room_type": room_type,
                 }
             )
-        except Exception as exc:
-            print(f"Hotel booking failed: {type(exc).__name__}: {exc}")
+        except Exception:
+            logger.warning(
+                "Hotel booking MCP call failed",
+                exc_info=True,
+            )
             return _service_error_response("hotel")
-
     elif state.get("sub_action") == "list_all":
         try:
             result = get_hotels.invoke({})
-        except Exception as exc:
-            print(f"Failed to list hotels: {type(exc).__name__}: {exc}")
+        except Exception:
+            logger.warning(
+                "Hotel list MCP call failed",
+                exc_info=True,
+            )
             return _service_error_response("hotel")
-
     elif city:
         params = {
             "city": city,
@@ -580,11 +601,13 @@ def hotel_node(state: GraphState) -> dict:
 
         try:
             result = search_hotel.invoke(params)
-            print("Hotel search debug:", params)
-        except Exception as exc:
-            print(f"Failed to search hotels: {type(exc).__name__}: {exc}")
+            logger.debug("Hotel search MCP call completed")
+        except Exception:
+            logger.warning(
+                "Hotel search MCP call failed",
+                exc_info=True,
+            )
             return _service_error_response("hotel")
-
     else:
         return {
             "hotel_results": [],
@@ -657,11 +680,7 @@ def flight_node(state: GraphState) -> dict:
                 "response_text": _missing_details_message("flight booking", missing),
             }
 
-        print("Flight booking debug:", {
-            "flight_id": flight_id,
-            "passenger_name": passenger_name,
-            "passenger_email": passenger_email,
-        })
+        logger.info("Invoking flight booking MCP tool")
 
         try:
             result = book_flight.invoke(
@@ -671,17 +690,22 @@ def flight_node(state: GraphState) -> dict:
                     "passenger_email": passenger_email,
                 }
             )
-        except Exception as exc:
-            print(f"Failed to book flight: {type(exc).__name__}: {exc}")
+        except Exception:
+            logger.warning(
+                "Flight booking MCP call failed",
+                exc_info=True,
+            )
             return _service_error_response("flight")
 
     elif state.get("sub_action") == "list_all":
         try:
             result = get_flights.invoke({})
-        except Exception as exc:
-            print(f"Failed to list flights: {type(exc).__name__}: {exc}")
+        except Exception:
+            logger.warning(
+                "Flight list MCP call failed",
+                exc_info=True,
+            )
             return _service_error_response("flight")
-
     elif origin and destination:
         params = {
             "origin": origin,
@@ -693,17 +717,20 @@ def flight_node(state: GraphState) -> dict:
 
         try:
             result = search_flights.invoke(params)
-            print("Flight search debug:", params)
-        except Exception as exc:
-            print(f"Failed to search flights: {type(exc).__name__}: {exc}")
+            logger.debug("Flight search MCP call completed")
+        except Exception:
+            logger.warning(
+                "Flight search MCP call failed",
+                exc_info=True,
+            )
             return _service_error_response("flight")
 
     elif origin or destination:
         missing = []
-        
+
         if not origin:
             missing.append("origin")
-        
+
         if not destination:
             missing.append("destination")
 
@@ -780,12 +807,15 @@ def unknown_node(state: GraphState) -> dict:
             "response_text": response.content,
         }
 
-    except Exception as e:
-        print(f"Failed to generate response: {type(e).__name__}: {e}")
+    except Exception:
+        logger.exception("General travel response generation failed")
         return {
             "hotel_results": [],
             "flight_results": [],
-            "response_text": f"I couldn't understand your request clearly. Error: {str(e)}",
+            "response_text": (
+                "I couldn't complete that travel request right now. "
+                "Please try again in a moment."
+            ),
         }
 
 def generate_response(state: GraphState) -> dict:

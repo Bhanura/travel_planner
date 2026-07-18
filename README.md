@@ -109,6 +109,28 @@ source env/bin/activate
 pip install -r requirements.txt
 ```
 
+### Dependency Management
+
+TripWeaver uses two runtime dependency files:
+
+- `requirements.in` contains the direct dependencies intentionally used by the application.
+- `requirements.txt` is generated from `requirements.in` and pins all direct and transitive dependency versions for reproducible CI and deployment.
+
+Install the tested runtime environment with:
+
+```bash
+pip install -r requirements.txt
+```
+
+Do not edit generated dependency versions directly in `requirements.txt`. To update dependencies, edit `requirements.in`, install the tested compiler version, and regenerate the lock:
+
+```bash
+python -m pip install pip-tools==7.5.3
+python -m piptools compile requirements.in --output-file requirements.txt --resolver=backtracking --strip-extras
+```
+
+The lock was generated with Python 3.11. Windows-only MCP support is protected by a platform marker, so `pywin32` is skipped on Linux deployment hosts. A clean Linux installation will also be verified by CI.
+
 ### 3. Configure Environment Variables
 
 Copy `.env.example` to `.env` in the project root, then update the values for your local setup.
@@ -129,10 +151,11 @@ Environment variables:
 
 - `OPENAI_API_KEY`: API key used by the LLM.
 - `OPENAI_MODEL`: OpenAI chat model name.
+- `LOG_LEVEL`: Application logging verbosity. Use `INFO` in production and `DEBUG` temporarily during development or diagnosis.
 - `HOTEL_PROVIDER_BASE_URL`: Hotel provider base URL used by the hotel MCP server.
 - `FLIGHT_PROVIDER_BASE_URL`: Flight provider base URL used by the flight MCP server.
 - `TRAVEL_PLANNER_API_URL`: Backend URL used by the Gradio frontend.
-- `ALLOWED_ORIGINS`: Comma-separated frontend origins allowed by FastAPI CORS.
+- `ALLOWED_ORIGINS`: Required comma-separated explicit frontend origins allowed by FastAPI CORS. Wildcard `*` is rejected.
 
 The real `.env` file is ignored by Git. Do not commit API keys.
 
@@ -181,11 +204,32 @@ Manual MCP server startup waits for stdio MCP input. Pressing `Ctrl+C` during a 
 
 | Endpoint | Method | Description |
 | --- | --- | --- |
-| `/` | GET | Basic backend hello response. |
+| `/` | GET | Identifies the TripWeaver API and links to health and API documentation. |
+| `/health` | GET | Reports backend liveness and safe configuration readiness without calling external services. |
 | `/hotels` | GET | Development/debug endpoint that lists hotels through the hotel tool. |
 | `/flights` | GET | Development/debug endpoint that lists flights through the flight tool. |
 | `/chat` | POST | Normal JSON chat endpoint. |
 | `/chat/stream` | POST | NDJSON streaming chat endpoint used by the frontend. |
+
+### GET `/health`
+
+The health endpoint returns HTTP 200 while the FastAPI application is running. It reports whether required LLM, hotel-provider, and flight-provider configuration is present without exposing API keys, provider URLs, or other secret values.
+
+The endpoint does not call MCP servers or external providers. A missing dependency is reported as `degraded` so one unavailable travel service does not make unrelated agents unusable.
+
+Example:
+
+```json
+{
+  "status": "healthy",
+  "service": "tripweaver-backend",
+  "dependencies": {
+    "llm_configured": true,
+    "hotel_provider_configured": true,
+    "flight_provider_configured": true
+  }
+}
+```
 
 ### POST `/chat`
 
@@ -346,7 +390,7 @@ For deployment:
 Recommended production checks:
 
 - Use HTTPS URLs.
-- Do not use `ALLOWED_ORIGINS=*` with credentials in production.
+- Configure `ALLOWED_ORIGINS` with the exact deployed frontend origin. Wildcard origins are rejected.
 - Keep `.env` and API keys out of Git.
 - Replace debug `print(...)` calls with structured logging before production use.
 
@@ -356,6 +400,26 @@ Recommended production checks:
 - Hotel name matching is still fuzzy for similar hotel names.
 - Flight booking does not yet have the same natural selection flow as hotel booking.
 - The app is not yet deployed.
+
+## Secret Scanning
+
+TripWeaver uses Gitleaks to scan the repository and complete Git history for accidentally committed API keys, tokens, passwords, and other credentials.
+
+Verify the installed scanner:
+
+```bash
+gitleaks version
+```
+
+Scan all Git refs and redact any detected values from terminal output:
+
+```bash
+gitleaks git --redact=100 --no-banner --verbose --log-opts="--all" .
+```
+
+A successful scan exits with code `0`. Possible findings exit with code `1` and must be reviewed. If a real credential is detected, revoke or rotate it before cleaning the repository history. Never treat deleting the latest file as sufficient, because the credential may remain recoverable from an earlier commit.
+
+The local `.env` file is ignored and must never be committed. `.env.example` contains names and safe placeholder/configuration values only.
 
 ## Notes
 
