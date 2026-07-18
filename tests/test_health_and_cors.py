@@ -72,4 +72,4 @@ def test_gradio_frontend_is_mounted():
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
-    assert "Trip Weaver" in response.text
+    assert "TripWeaver" in response.text

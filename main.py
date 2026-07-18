@@ -1,21 +1,31 @@
 import json
 import os
 import logging
+from pathlib import Path
 
 import gradio as gr
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from entity import ChatRequest, ChatResponse
 from agents.tools import get_hotels, get_flights
 from agents.graph import graph
-from frontend import demo as frontend_demo
+from frontend import APP_CSS, APP_THEME, demo as frontend_demo
 
 conversation_sessions = {}
 
 app = FastAPI()
+
+ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+
+app.mount(
+    "/assets",
+    StaticFiles(directory=ASSETS_DIR),
+    name="assets",
+)
 
 load_dotenv()
 
@@ -338,6 +348,9 @@ app = gr.mount_gradio_app(
     app,
     frontend_demo,
     path="/app",
+    theme=APP_THEME,
+    css=APP_CSS,
+    footer_links=[],
 )
 
 
