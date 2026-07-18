@@ -21,6 +21,7 @@ from streaming_events import (
     activities_from_graph_update,
     encode_stream_event,
     iter_text_chunks,
+    text_from_message_chunk,
 )
 
 conversation_sessions = {}
@@ -246,12 +247,41 @@ async def chat_stream(request: ChatRequest):
             )
 
             result = initial_state.copy()
+            live_response_chunks = []
 
             async for stream_part in graph.astream(
                 initial_state,
-                stream_mode="updates",
+                stream_mode=["updates", "messages"],
                 version="v2",
             ):
+                if stream_part.get("type") == "messages":
+                    message_data = stream_part.get("data")
+
+                    if (
+                        not isinstance(message_data, tuple)
+                        or len(message_data) != 2
+                    ):
+                        continue
+
+                    message_chunk, metadata = message_data
+
+                    if (
+                        not isinstance(metadata, dict)
+                        or metadata.get("langgraph_node") != "unknown_node"
+                    ):
+                        continue
+
+                    chunk_text = text_from_message_chunk(message_chunk)
+
+                    if chunk_text:
+                        live_response_chunks.append(chunk_text)
+                        yield encode_stream_event({
+                            "type": "delta",
+                            "content": chunk_text,
+                        })
+
+                    continue
+
                 if stream_part.get("type") != "updates":
                     continue
 
@@ -314,11 +344,17 @@ async def chat_stream(request: ChatRequest):
                 session["pending_hotel_booking"] = None
                 logger.debug("Cleared pending hotel booking state during stream")
 
-            for text_chunk in iter_text_chunks(response_text):
-                yield encode_stream_event({
-                    "type": "delta",
-                    "content": text_chunk,
-                })
+            if not live_response_chunks:
+                for text_chunk in iter_text_chunks(response_text):
+                    yield encode_stream_event({
+                        "type": "delta",
+                        "content": text_chunk,
+                    })
+            elif "".join(live_response_chunks) != response_text:
+                logger.warning(
+                    "Live model chunks differed from final response; "
+                    "the canonical message event will correct the UI"
+                )
 
             yield encode_stream_event({
                 "type": "message",

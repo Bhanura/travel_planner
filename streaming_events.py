@@ -35,6 +35,50 @@ def iter_text_chunks(
     if buffer:
         yield buffer
 
+
+def text_from_message_chunk(message: object) -> str:
+    """Return public text from a LangGraph message stream item."""
+    if isinstance(message, dict):
+        if message.get("event") != "content-block-delta":
+            return ""
+
+        delta = message.get("delta", {})
+
+        if (
+            isinstance(delta, dict)
+            and delta.get("type") == "text-delta"
+            and isinstance(delta.get("text"), str)
+        ):
+            return delta["text"]
+
+        return ""
+
+    content = getattr(message, "content", "")
+
+    if isinstance(content, str):
+        return content
+
+    if not isinstance(content, list):
+        return ""
+
+    text_parts = []
+
+    for block in content:
+        if isinstance(block, str):
+            text_parts.append(block)
+            continue
+
+        if not isinstance(block, dict):
+            continue
+
+        block_text = block.get("text")
+
+        if isinstance(block_text, str):
+            text_parts.append(block_text)
+
+    return "".join(text_parts)
+
+
 AGENT_LABELS = {
     "hotel": "Hotel Agent",
     "flight": "Flight Agent",

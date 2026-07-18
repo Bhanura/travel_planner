@@ -29,6 +29,8 @@ def respond(message, history, session_id, results_state):
     yield history, "", render_progress(progress_events), render_results_panel(results_state), results_state
 
     try:
+        streamed_text = ""
+
         for event in stream_chat_api(message, session_id):
             event_type = event.get("type")
 
@@ -41,7 +43,16 @@ def respond(message, history, session_id, results_state):
                 if progress_events[-1] != activity:
                     progress_events.append(activity)
 
-                history[-1]["content"] = activity["message"]
+                yield history, "", render_progress(progress_events), render_results_panel(results_state), results_state
+
+            elif event_type == "delta":
+                chunk = event.get("content", "")
+
+                if not isinstance(chunk, str) or not chunk:
+                    continue
+
+                streamed_text += chunk
+                history[-1]["content"] = streamed_text
                 yield history, "", render_progress(progress_events), render_results_panel(results_state), results_state
 
             elif event_type == "message":
