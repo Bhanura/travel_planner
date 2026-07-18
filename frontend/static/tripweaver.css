@@ -1,0 +1,358 @@
+:root {
+    --tw-ocean-950: #062a46;
+    --tw-ocean-900: #073b61;
+    --tw-ocean-700: #086b9c;
+    --tw-sky-400: #38bdf8;
+    --tw-sunset-500: #f97316;
+    --tw-sunset-400: #fb923c;
+    --tw-sand-50: #fffaf3;
+    --tw-white: #ffffff;
+}
+
+.tw-hero {
+    position: relative;
+    min-height: 310px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    padding: 48px;
+    margin-bottom: 24px;
+    border-radius: 24px;
+    color: var(--tw-white);
+    box-shadow: 0 24px 60px rgba(6, 42, 70, 0.22);
+    background-image:
+        linear-gradient(
+            90deg,
+            rgba(6, 42, 70, 0.96) 0%,
+            rgba(7, 59, 97, 0.84) 42%,
+            rgba(7, 59, 97, 0.30) 72%,
+            rgba(249, 115, 22, 0.10) 100%
+        ),
+        url("/assets/tripweaver-hero.png");
+    background-size: cover;
+    background-position: center;
+}
+
+.tw-hero::after {
+    content: "";
+    position: absolute;
+    width: 240px;
+    height: 240px;
+    right: -70px;
+    bottom: -100px;
+    border-radius: 50%;
+    background: rgba(251, 146, 60, 0.22);
+    filter: blur(12px);
+    animation: tw-hero-glow 6s ease-in-out infinite alternate;
+}
+
+.tw-hero__content {
+    position: relative;
+    z-index: 1;
+    max-width: 680px;
+    animation: tw-hero-enter 700ms ease-out both;
+}
+
+.tw-hero__eyebrow {
+    display: inline-flex;
+    padding: 7px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.30);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(8px);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+}
+
+.tw-hero h1 {
+    margin: 18px 0 10px;
+    color: var(--tw-white);
+    font-size: clamp(42px, 7vw, 72px);
+    line-height: 0.95;
+    letter-spacing: -0.05em;
+}
+
+.tw-hero h1 span {
+    color: var(--tw-sunset-400);
+}
+
+.tw-hero__description {
+    max-width: 620px;
+    margin: 0;
+    color: rgba(255, 255, 255, 0.88);
+    font-size: 17px;
+    line-height: 1.65;
+}
+
+.tw-hero__features {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 22px;
+}
+
+.tw-hero__features span {
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: rgba(6, 42, 70, 0.60);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    font-size: 13px;
+}
+
+.tw-hero__signature {
+    margin-top: 22px;
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 13px;
+}
+
+.tw-hero__signature strong {
+    color: var(--tw-white);
+}
+
+@keyframes tw-hero-enter {
+    from {
+        opacity: 0;
+        transform: translateY(16px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes tw-hero-glow {
+    from {
+        transform: scale(0.90);
+        opacity: 0.50;
+    }
+
+    to {
+        transform: scale(1.08);
+        opacity: 0.90;
+    }
+}
+
+@media (max-width: 768px) {
+    .tw-hero {
+        min-height: 390px;
+        padding: 30px 22px;
+        border-radius: 18px;
+        background-position: 66% center;
+    }
+
+    .tw-hero h1 {
+        font-size: 46px;
+    }
+
+    .tw-hero__description {
+        font-size: 15px;
+    }
+
+    .tw-hero__features {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tw-hero__content,
+    .tw-hero::after {
+        animation: none;
+    }
+
+    .tw-quick-action button,
+    #tw-send button {
+        transition: none;
+    }
+}
+
+.tw-chat-shell {
+    padding: 22px;
+    border: 1px solid rgba(56, 189, 248, 0.14);
+    border-radius: 22px;
+    background:
+        linear-gradient(
+            145deg,
+            rgba(7, 59, 97, 0.38),
+            rgba(15, 23, 42, 0.72)
+        );
+    box-shadow: 0 18px 45px rgba(2, 20, 35, 0.18);
+}
+
+.tw-section-heading {
+    margin-bottom: 14px;
+}
+
+.tw-section-kicker {
+    color: var(--tw-sunset-400);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+}
+
+.tw-section-heading h2 {
+    margin: 6px 0;
+    color: var(--tw-white);
+    font-size: 26px;
+}
+
+.tw-section-heading p {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 14px;
+}
+
+.tw-quick-actions {
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.tw-quick-action {
+    min-width: 190px;
+    flex: 1 1 190px;
+}
+
+.tw-quick-action button {
+    border: 1px solid rgba(56, 189, 248, 0.24) !important;
+    background: rgba(8, 107, 156, 0.18) !important;
+    color: rgba(255, 255, 255, 0.90) !important;
+    transition:
+        transform 180ms ease,
+        border-color 180ms ease,
+        background 180ms ease;
+}
+
+.tw-quick-action button:hover {
+    transform: translateY(-2px);
+    border-color: var(--tw-sunset-400) !important;
+    background: rgba(249, 115, 22, 0.16) !important;
+}
+
+#tw-chatbot {
+    overflow: hidden;
+    border: 1px solid rgba(56, 189, 248, 0.14);
+    border-radius: 18px;
+    background: rgba(2, 20, 35, 0.34);
+}
+
+.tw-message-row {
+    align-items: stretch;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+#tw-message textarea {
+    border-color: rgba(56, 189, 248, 0.20);
+    line-height: 1.5;
+}
+
+#tw-message textarea:focus {
+    border-color: var(--tw-sunset-400);
+    box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.12);
+}
+
+#tw-send button {
+    height: 100%;
+    min-height: 58px;
+    border: none !important;
+    color: white !important;
+    font-weight: 700;
+    background:
+        linear-gradient(
+            135deg,
+            var(--tw-sunset-500),
+            var(--tw-sunset-400)
+        ) !important;
+    box-shadow: 0 12px 25px rgba(249, 115, 22, 0.20);
+    transition:
+        transform 180ms ease,
+        box-shadow 180ms ease;
+}
+
+#tw-send button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 16px 32px rgba(249, 115, 22, 0.30);
+}
+
+.progress-panel {
+    border: 1px solid #3f3f46;
+    border-radius: 8px;
+    padding: 12px;
+    background: #18181b;
+    min-height: 160px;
+}
+
+.progress-title {
+    font-weight: 700;
+    margin-bottom: 10px;
+}
+
+.progress-step {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin: 10px 0;
+    font-size: 14px;
+}
+
+.progress-stage {
+    color: #a1a1aa;
+    font-size: 12px;
+    text-transform: uppercase;
+}
+
+.progress-message {
+    color: #f4f4f5;
+}
+
+.progress-empty {
+    color: #a1a1aa;
+    font-size: 14px;
+}
+
+.progress-check {
+    color: #22c55e;
+    font-weight: 700;
+    width: 16px;
+}
+
+.progress-error {
+    color: #ef4444;
+    font-weight: 700;
+    width: 16px;
+}
+
+.progress-spinner {
+    width: 12px;
+    height: 12px;
+    margin-top: 3px;
+    border: 2px solid #60a5fa;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: progress-spin 0.8s linear infinite;
+}
+
+@keyframes progress-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.result-item {
+    border-top: 1px solid #3f3f46;
+    padding: 10px 0;
+}
+
+.result-name {
+    font-weight: 700;
+    color: #f4f4f5;
+}
+
+.result-meta {
+    color: #a1a1aa;
+    font-size: 13px;
+    margin-top: 4px;
+}

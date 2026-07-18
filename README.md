@@ -22,7 +22,7 @@ The project uses a FastAPI backend, LangGraph agent routing, LangChain tools, MC
 TripWeaver is organized into five main layers:
 
 1. **Gradio Frontend**
-   - Runs from `frontend.py`.
+   - Runs from the `frontend/` package.
    - Sends user messages to the FastAPI backend.
    - Consumes `/chat/stream` NDJSON events.
    - Shows chat messages, agent progress, quick prompts, and expandable travel results.
@@ -69,7 +69,7 @@ TripWeaver is organized into five main layers:
 |   |-- hotel_server.py  # Hotel MCP tools
 |   `-- provider_utils.py
 |-- entity.py            # FastAPI request/response models
-|-- frontend.py          # Gradio frontend
+|-- frontend/            # Modular Gradio frontend package
 |-- main.py              # FastAPI backend
 |-- requirements.txt
 `-- .env.example
@@ -178,7 +178,7 @@ http://127.0.0.1:8000
 Open a second terminal with the virtual environment activated:
 
 ```bash
-python frontend.py
+python -m frontend
 ```
 
 The Gradio frontend usually runs at:

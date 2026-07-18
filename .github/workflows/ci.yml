@@ -51,7 +51,7 @@ jobs:
           python -m compileall -q \
             main.py \
             entity.py \
-            frontend.py \
+            frontend \
             agents \
             mcp_servers \
             tests
