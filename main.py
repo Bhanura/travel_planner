@@ -1,4 +1,3 @@
-import json
 import os
 import logging
 
@@ -18,6 +17,13 @@ from frontend import (
     STATIC_DIR,
     demo as frontend_demo,
 )
+from streaming_events import (
+    activities_from_graph_update,
+    encode_stream_event,
+    iter_text_chunks,
+    text_from_message_chunk,
+)
+
 conversation_sessions = {}
 
 app = FastAPI()
@@ -89,41 +95,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def _stream_event(event: dict) -> str:
-    return json.dumps(event) + "\n"
-
-def _activity_from_result(result: dict) -> dict:
-    response_text = result.get("response_text", "")
-    sub_action = result.get("sub_action", "")
-
-    if "I still need" in response_text:
-        return {
-            "stage": "clarifying",
-            "message": "Checking what details are missing...",
-        }
-
-    if sub_action == "book":
-        return {
-            "stage": "booking",
-            "message": "Processing your booking request...",
-        }
-
-    if result.get("hotel_results"):
-        return {
-            "stage": "searching",
-            "message": "Found hotel options.",
-        }
-
-    if result.get("flight_results"):
-        return {
-            "stage": "searching",
-            "message": "Found flight options.",
-        }
-
-    return {
-        "stage": "responding",
-        "message": "Preparing your answer...",
-    }
 
 def _build_initial_state(message: str, session_id: str | None) -> dict:
     session = _get_session(session_id)
@@ -262,31 +233,83 @@ async def chat(request: ChatRequest):
 
 @app.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
-    def event_generator():
+    async def event_generator():
         try:
-            yield _stream_event({
+            yield encode_stream_event({
                 "type": "activity",
                 "stage": "routing",
                 "message": "Understanding your request...",
             })
 
-            initial_state = _build_initial_state(request.message, request.session_id)
+            initial_state = _build_initial_state(
+                request.message,
+                request.session_id,
+            )
 
-            yield _stream_event({
-                "type": "activity",
-                "stage": "routing",
-                "message": "Choosing the right travel agent...",
-            })
+            result = initial_state.copy()
+            live_response_chunks = []
 
-            result = graph.invoke(initial_state)
+            async for stream_part in graph.astream(
+                initial_state,
+                stream_mode=["updates", "messages"],
+                version="v2",
+            ):
+                if stream_part.get("type") == "messages":
+                    message_data = stream_part.get("data")
 
-            activity = _activity_from_result(result)
+                    if (
+                        not isinstance(message_data, tuple)
+                        or len(message_data) != 2
+                    ):
+                        continue
 
-            yield _stream_event({
-                "type": "activity",
-                "stage": activity["stage"],
-                "message": activity["message"],
-            })
+                    message_chunk, metadata = message_data
+
+                    if (
+                        not isinstance(metadata, dict)
+                        or metadata.get("langgraph_node") != "unknown_node"
+                    ):
+                        continue
+
+                    chunk_text = text_from_message_chunk(message_chunk)
+
+                    if chunk_text:
+                        live_response_chunks.append(chunk_text)
+                        yield encode_stream_event({
+                            "type": "delta",
+                            "content": chunk_text,
+                        })
+
+                    continue
+
+                if stream_part.get("type") != "updates":
+                    continue
+
+                node_updates = stream_part.get(
+                    "data",
+                    {},
+                )
+
+                if not isinstance(node_updates, dict):
+                    continue
+
+                for node_name, node_update in node_updates.items():
+                    if not isinstance(node_update, dict):
+                        continue
+
+                    result.update(node_update)
+
+                    activity_events = (
+                        activities_from_graph_update(
+                            node_name,
+                            node_update,
+                        )
+                    )
+
+                    for activity_event in activity_events:
+                        yield encode_stream_event(
+                            activity_event
+                        )
 
             response_text = result.get(
                 "response_text",
@@ -320,25 +343,38 @@ async def chat_stream(request: ChatRequest):
             if result.get("booking_confirmed"):
                 session["pending_hotel_booking"] = None
                 logger.debug("Cleared pending hotel booking state during stream")
-            yield _stream_event({
+
+            if not live_response_chunks:
+                for text_chunk in iter_text_chunks(response_text):
+                    yield encode_stream_event({
+                        "type": "delta",
+                        "content": text_chunk,
+                    })
+            elif "".join(live_response_chunks) != response_text:
+                logger.warning(
+                    "Live model chunks differed from final response; "
+                    "the canonical message event will correct the UI"
+                )
+
+            yield encode_stream_event({
                 "type": "message",
                 "content": response_text,
                 "hotels": result.get("hotel_results", []) or None,
                 "flights": result.get("flight_results", []) or None,
             })
 
-            yield _stream_event({"type": "done"})
+            yield encode_stream_event({"type": "done"})
 
         except Exception:
             logger.exception("Unexpected chat stream error")
-            yield _stream_event({
+            yield encode_stream_event({
                 "type": "error",
                 "message": (
                     "Something went wrong while streaming your trip plan. "
                     "Please try again in a moment."
                 ),
             })
-            yield _stream_event({"type": "done"})
+            yield encode_stream_event({"type": "done"})
 
     return StreamingResponse(
         event_generator(),
