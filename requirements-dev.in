@@ -1,0 +1,5 @@
+# Development and CI dependencies
+-c requirements.txt
+
+pip-tools==7.5.3
+pytest
