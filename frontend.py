@@ -432,7 +432,11 @@ def main():
             outputs=[results, results_state],
         )
 
-    demo.launch(css=APP_CSS)
+    return demo
+
+
+demo = main()
+
 
 if __name__ == "__main__":
-    main()
+    demo.launch(css=APP_CSS)
