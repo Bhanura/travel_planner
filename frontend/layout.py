@@ -57,7 +57,7 @@ def build_demo() -> gr.Blocks:
 
         with gr.Row():
             with gr.Column(
-                scale=4,
+                scale=5,
                 min_width=320,
                 elem_classes=["tw-chat-shell"],
             ):
@@ -82,7 +82,7 @@ def build_demo() -> gr.Blocks:
                         elem_classes=["tw-quick-action"],
                     )
                     flight_example = gr.Button(
-                        "✈️ Fly from Bangkok to Mumbai",
+                        "✈️ Fly from Bangkok to Singapore",
                         elem_classes=["tw-quick-action"],
                     )
                     inspiration_example = gr.Button(
@@ -117,7 +117,7 @@ def build_demo() -> gr.Blocks:
                     )
 
                     submit = gr.Button(
-                        "Plan my trip  →",
+                        "Send →",
                         variant="primary",
                         scale=2,
                         elem_id="tw-send",
@@ -129,7 +129,7 @@ def build_demo() -> gr.Blocks:
                 )
 
                 flight_example.click(
-                    lambda: "Find flights from Bangkok to Mumbai",
+                    lambda: "Find flights from Bangkok to Singapore",
                     outputs=[message],
                 )
 
@@ -138,13 +138,53 @@ def build_demo() -> gr.Blocks:
                     outputs=[message],
                 )
 
-            with gr.Column(scale=1):
-                with gr.Accordion("Agent progress", open=True):
-                    progress = gr.HTML(render_progress([]))
+            with gr.Column(
+                scale=2,
+                min_width=320,
+                elem_classes=["tw-insights-shell"],
+            ):
+                gr.HTML(
+                    """
+                    <div class="tw-insights-heading">
+                        <span>TRIP INTELLIGENCE</span>
+                        <h2>Your live workspace</h2>
+                        <p>
+                            Follow the agents and review every
+                            travel match in one place.
+                        </p>
+                    </div>
+                    """
+                )
 
-                with gr.Accordion("Travel results", open=True):
-                    results = gr.HTML(render_results_panel({"hotels": [], "flights": [], "expanded": False}))
-                    toggle_results_button = gr.Button("See All / Collapse")
+                with gr.Accordion(
+                    "Agent journey",
+                    open=True,
+                    elem_classes=["tw-insight-card"],
+                ):
+                    progress = gr.HTML(
+                        render_progress([]),
+                        show_label=False,
+                    )
+
+                with gr.Accordion(
+                    "Travel matches",
+                    open=True,
+                    elem_classes=["tw-insight-card"],
+                ):
+                    results = gr.HTML(
+                        render_results_panel({
+                            "hotels": [],
+                            "flights": [],
+                            "expanded": False,
+                        }),
+                        show_label=False,
+                    )
+
+                    toggle_results_button = gr.Button(
+                        "See all results  ↓",
+                        variant="secondary",
+                        elem_id="tw-results-toggle",
+                    )
 
         submit.click(
             respond,
@@ -161,7 +201,11 @@ def build_demo() -> gr.Blocks:
         toggle_results_button.click(
             toggle_results,
             inputs=[results_state],
-            outputs=[results, results_state],
+            outputs=[
+                results,
+                results_state,
+                toggle_results_button,
+            ],
         )
 
     return demo
