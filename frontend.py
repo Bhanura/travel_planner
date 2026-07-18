@@ -439,4 +439,10 @@ demo = main()
 
 
 if __name__ == "__main__":
-    demo.launch(css=APP_CSS)
+    port = int(os.environ.get("PORT", "7860"))
+
+    demo.launch(
+        css=APP_CSS,
+        server_name="0.0.0.0",
+        server_port=port,
+    )
