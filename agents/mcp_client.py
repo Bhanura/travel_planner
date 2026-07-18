@@ -1,11 +1,12 @@
 import asyncio
 import json
+import os
 import sys
 from typing import Any
 
 from concurrent.futures import ThreadPoolExecutor
 from mcp import ClientSession
-from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.client.stdio import StdioServerParameters, get_default_environment, stdio_client
 
 
 class MCPToolError(RuntimeError):
@@ -16,6 +17,26 @@ SERVER_MODULES = {
     "hotel": "mcp_servers.hotel_server",
     "flight": "mcp_servers.flight_server",
 }
+
+SERVER_ENV_VARS = {
+    "hotel": "HOTEL_PROVIDER_BASE_URL",
+    "flight": "FLIGHT_PROVIDER_BASE_URL",
+}
+
+
+def _server_environment(server: str) -> dict[str, str]:
+    variable_name = SERVER_ENV_VARS[server]
+    variable_value = os.getenv(variable_name, "").strip()
+
+    if not variable_value:
+        raise MCPToolError(
+            f"{variable_name} is required to launch the {server} MCP server."
+        )
+
+    environment = get_default_environment()
+    environment[variable_name] = variable_value
+
+    return environment
 
 
 def call_mcp_tool(server: str, tool_name: str, arguments: dict | None = None) -> Any:
@@ -39,6 +60,7 @@ async def _call_mcp_tool_async(server: str, tool_name: str, arguments: dict) -> 
     server_params = StdioServerParameters(
         command=sys.executable,
         args=["-m", SERVER_MODULES[server]],
+        env=_server_environment(server),
     )
 
     try:
