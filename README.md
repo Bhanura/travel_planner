@@ -1,100 +1,161 @@
-# TripWeaver - MCP Based Multi-Agent Travel Planner
+# TripWeaver — MCP-Based Multi-Agent Travel Planner
 
-TripWeaver is a travel planning assistant that helps users search hotels, search flights, and book hotel rooms through a multi-agent workflow.
+[![CI](https://github.com/Bhanura/travel_planner/actions/workflows/ci.yml/badge.svg)](https://github.com/Bhanura/travel_planner/actions/workflows/ci.yml)
 
-The project uses a FastAPI backend, LangGraph agent routing, LangChain tools, MCP servers for provider access, and a Gradio frontend with streaming agent progress.
+TripWeaver is a deployed conversational travel assistant built with FastAPI, Gradio, LangGraph, LangChain, and the Model Context Protocol (MCP). It routes a traveller's natural-language request to a General Travel, Hotel, or Flight agent, retrieves live provider data through MCP tools, streams visible progress and response text, and protects hotel and flight bookings with explicit human confirmation.
 
-## Features
+## Live Project
 
-- Search hotels by city.
-- Search flights by route.
-- Ask follow-up questions when required details are missing.
-- Route requests to hotel, flight, or general travel agents.
-- Access hotel and flight providers through MCP servers.
-- Stream agent activity through `/chat/stream`.
-- Show agent progress in the frontend.
-- Display hotel and flight results in an expandable results panel.
-- Support session-based hotel booking with user confirmation.
-- Handle external service failures with friendly messages.
+- **Application:** <https://tripweaver-backend-staging-bhanu.onrender.com/app/>
+- **Health:** <https://tripweaver-backend-staging-bhanu.onrender.com/health>
+- **API documentation:** <https://tripweaver-backend-staging-bhanu.onrender.com/docs>
+- **Source repository:** <https://github.com/Bhanura/travel_planner>
+- **CI runs:** <https://github.com/Bhanura/travel_planner/actions>
+
+> The Render free instance may need extra time to respond after inactivity.
+
+## Core Features
+
+- Intent-routed LangGraph workflow for hotel, flight, and general travel requests.
+- Six capabilities exposed through MCP: list, search, and book hotels; list, search, and book flights.
+- Follow-up questions for missing search and booking details instead of invented values.
+- Genuine incremental NDJSON streaming with traveller-safe Agent Journey activities.
+- Ocean Blue and Sunset Orange responsive Gradio interface mounted at `/app/`.
+- Structured hotel and flight cards with natural result selection.
+- Session-aware, multi-turn hotel and flight booking flows.
+- Explicit confirmation, cancellation, and detail changes before booking.
+- Friendly empty-result, provider-failure, graph-failure, and streaming errors.
+- Automated tests with provider, LLM, and booking boundaries mocked by default.
 
 ## Architecture
 
-TripWeaver is organized into five main layers:
+```mermaid
+flowchart LR
+    U["Traveller"] --> UI["Gradio UI /app"]
+    UI --> API["FastAPI /chat and /chat/stream"]
+    API --> G["LangGraph StateGraph"]
+    G --> R["Intent Router"]
+    R --> GA["General Travel Agent"]
+    R --> HA["Hotel Agent"]
+    R --> FA["Flight Agent"]
+    HA --> LT["LangChain Hotel Tools"]
+    FA --> FT["LangChain Flight Tools"]
+    LT --> MC["MCP stdio Client"]
+    FT --> MC
+    MC --> HMS["Hotel MCP Server"]
+    MC --> FMS["Flight MCP Server"]
+    HMS --> HP["Hotel Provider"]
+    FMS --> FP["Flight Provider"]
+    G --> API
+    API --> UI
+```
 
-1. **Gradio Frontend**
-   - Runs from the `frontend/` package.
-   - Sends user messages to the FastAPI backend.
-   - Consumes `/chat/stream` NDJSON events.
-   - Shows chat messages, agent progress, quick prompts, and expandable travel results.
+| Layer | Responsibility |
+| --- | --- |
+| Gradio frontend | Captures messages and renders streaming text, Agent Journey activities, and structured results. |
+| FastAPI backend | Exposes health, JSON chat, NDJSON streaming, and the mounted `/app/` UI. |
+| LangGraph workflow | Routes intent and passes shared `GraphState` between specialised nodes. |
+| LangChain tools | Give agents stable hotel and flight tool interfaces. |
+| MCP client | Starts the correct MCP server as a stdio subprocess and calls its tools. |
+| MCP servers | Own provider-specific HTTP logic and return structured data. |
 
-2. **FastAPI Backend**
-   - Runs from `main.py`.
-   - Exposes `/chat` and `/chat/stream`.
-   - Builds the initial graph state.
-   - Maintains lightweight in-memory session state with `session_id`.
+The deployed Render service hosts FastAPI and the mounted Gradio application in one process. The Hotel and Flight MCP servers remain separate stdio subprocesses launched at runtime by the MCP client. Agents never call provider APIs directly.
 
-3. **LangGraph Agent Workflow**
-   - Defined in `agents/graph.py`.
-   - Routes requests through `router`.
-   - Sends hotel requests to `hotel_node`.
-   - Sends flight requests to `flight_node`.
-   - Sends general requests to `unknown_node`.
-   - Uses `generate_response` to create final assistant text.
+## Request Flow
 
-4. **LangChain Tool Layer**
-   - Defined in `agents/tools.py`.
-   - Keeps stable tool names such as `search_hotel`, `search_flights`, `book_hotel`, and `book_flight`.
-   - Calls the MCP client instead of directly calling external provider APIs.
+1. The traveller submits a natural-language message.
+2. FastAPI restores lightweight session context and builds `GraphState`.
+3. The LangGraph router extracts intent and selects the General, Hotel, or Flight node.
+4. The selected agent asks for missing inputs or invokes a LangChain tool.
+5. The LangChain tool calls the relevant MCP tool through the stdio MCP client.
+6. LangGraph updates become safe `activity` events, while answer text is emitted as `delta` events.
+7. A canonical `message` event carries the final text and optional structured results.
+8. A `done` event terminates the stream, including after safe error recovery.
 
-5. **MCP Provider Layer**
-   - Hotel MCP server: `mcp_servers/hotel_server.py`
-   - Flight MCP server: `mcp_servers/flight_server.py`
-   - Handles provider-specific HTTP requests.
-   - Keeps external service logic separated from the agent workflow.
+## MCP Integration
+
+TripWeaver uses two FastMCP servers:
+
+| Server | MCP tool | Purpose |
+| --- | --- | --- |
+| Hotel | `list_hotels` | Return all available hotels. |
+| Hotel | `search_hotels` | Search by city and optional dates. |
+| Hotel | `book_hotel` | Submit a confirmed hotel booking. |
+| Flight | `list_flights` | Return all available flights. |
+| Flight | `search_flights` | Search by origin, destination, and optional date. |
+| Flight | `book_flight` | Submit a confirmed flight booking. |
+
+`agents/tools.py` provides the stable LangChain boundary. `agents/mcp_client.py` launches either `mcp_servers.hotel_server` or `mcp_servers.flight_server`, initializes an MCP session, invokes a named tool, and converts its response to plain Python data. Provider URLs and HTTP behavior remain inside the MCP layer, so the graph is decoupled from provider code.
+
+## Booking Safety
+
+Hotel and flight bookings share the same safety pattern:
+
+1. Search or list available results.
+2. Select an option naturally by displayed number or stable identifier.
+3. Collect only the missing booking details across turns.
+4. Store a pending booking in the current in-memory session.
+5. Show a full summary before any provider booking call.
+6. Accept `yes` to confirm, `cancel` to stop, or a natural-language detail change.
+7. Call the MCP booking tool only after explicit confirmation.
+8. Return the provider status and booking reference when available.
+
+Pending state is cleared after success or cancellation. A failed provider call returns a safe message and preserves enough pending context to retry without exposing private exception details.
 
 ## Project Structure
 
 ```text
 .
+|-- .github/workflows/ci.yml       # Tests, compilation, dependency, and Gitleaks checks
 |-- agents/
-|   |-- entity.py        # LangGraph state schema
-|   |-- graph.py         # LangGraph workflow definition
-|   |-- llm.py           # LLM configuration
-|   |-- mcp_client.py    # MCP client adapter
-|   |-- nodes.py         # Router, hotel, flight, unknown, and response nodes
-|   |-- prompts.py       # LLM extraction and fallback prompts
-|   `-- tools.py         # LangChain tools that call MCP
+|   |-- entity.py                  # Shared LangGraph state schema
+|   |-- graph.py                   # Intent-routed StateGraph
+|   |-- llm.py                     # Chat model configuration
+|   |-- mcp_client.py              # stdio MCP client adapter
+|   |-- nodes.py                   # Router and specialised agent nodes
+|   |-- prompts.py                 # Extraction and general-travel prompts
+|   `-- tools.py                   # LangChain-to-MCP boundary
+|-- frontend/
+|   |-- __main__.py                # Optional standalone Gradio launch
+|   |-- api_client.py              # JSON and NDJSON API client
+|   |-- handlers.py                # Incremental UI response handler
+|   |-- layout.py                  # Gradio component layout
+|   |-- presenters.py              # Agent Journey and result presentation
+|   |-- static/                    # Travel image and CSS
+|   `-- theme.py                   # Gradio theme configuration
 |-- mcp_servers/
-|   |-- flight_server.py # Flight MCP tools
-|   |-- hotel_server.py  # Hotel MCP tools
-|   `-- provider_utils.py
-|-- entity.py            # FastAPI request/response models
-|-- frontend/            # Modular Gradio frontend package
-|-- main.py              # FastAPI backend
-|-- requirements.txt
-`-- .env.example
+|   |-- hotel_server.py            # Hotel FastMCP server
+|   |-- flight_server.py           # Flight FastMCP server
+|   `-- provider_utils.py          # Provider HTTP helpers
+|-- tests/                         # Mocked contract and regression tests
+|-- entity.py                      # FastAPI request/response models
+|-- main.py                        # FastAPI app and mounted Gradio UI
+|-- streaming_events.py            # NDJSON deltas and activities
+|-- render.yaml                    # Render Blueprint
+|-- requirements.in                # Direct runtime dependencies
+|-- requirements.txt               # Locked runtime dependencies
+|-- requirements-dev.txt           # Locked test dependencies
+`-- .env.example                   # Safe configuration template
 ```
 
-## Setup
+## Local Setup
 
-### 1. Create Virtual Environment
+### Prerequisites
+
+- Python 3.11
+- An OpenAI API key
+- Reachable hotel and flight provider base URLs
+
+### 1. Create and activate a virtual environment
 
 ```bash
 python -m venv env
 ```
 
-Activate the virtual environment:
-
-Windows CMD:
-
-```bash
-env\Scripts\activate
-```
-
-Windows PowerShell:
+PowerShell:
 
 ```powershell
-env\Scripts\Activate.ps1
+.\env\Scripts\Activate.ps1
 ```
 
 macOS/Linux:
@@ -103,39 +164,23 @@ macOS/Linux:
 source env/bin/activate
 ```
 
-### 2. Install Dependencies
+### 2. Install locked dependencies
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-### Dependency Management
-
-TripWeaver uses two runtime dependency files:
-
-- `requirements.in` contains the direct dependencies intentionally used by the application.
-- `requirements.txt` is generated from `requirements.in` and pins all direct and transitive dependency versions for reproducible CI and deployment.
-
-Install the tested runtime environment with:
+For tests, also install:
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
 ```
 
-Do not edit generated dependency versions directly in `requirements.txt`. To update dependencies, edit `requirements.in`, install the tested compiler version, and regenerate the lock:
+Direct dependencies are maintained in `requirements.in` and `requirements-dev.in`. The corresponding `.txt` files pin the complete tested environment for reproducible CI and deployment.
 
-```bash
-python -m pip install pip-tools==7.5.3
-python -m piptools compile requirements.in --output-file requirements.txt --resolver=backtracking --strip-extras
-```
+### 3. Configure the environment
 
-The lock was generated with Python 3.11. Windows-only MCP support is protected by a platform marker, so `pywin32` is skipped on Linux deployment hosts. A clean Linux installation will also be verified by CI.
-
-### 3. Configure Environment Variables
-
-Copy `.env.example` to `.env` in the project root, then update the values for your local setup.
-
-Windows PowerShell:
+PowerShell:
 
 ```powershell
 Copy-Item .env.example .env
@@ -147,310 +192,179 @@ macOS/Linux:
 cp .env.example .env
 ```
 
-Environment variables:
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | Yes | Authenticates the chat model. |
+| `OPENAI_MODEL` | No | Chat model name; the example uses `gpt-4o-mini`. |
+| `HOTEL_PROVIDER_BASE_URL` | Yes | Base URL used only by the Hotel MCP server. |
+| `FLIGHT_PROVIDER_BASE_URL` | Yes | Base URL used only by the Flight MCP server. |
+| `LOG_LEVEL` | No | Python logging level; use `INFO` in deployment. |
+| `TRAVEL_PLANNER_API_URL` | No | Frontend API override; defaults to the application port. |
+| `ALLOWED_ORIGINS` | Yes | Comma-separated browser origins; wildcard `*` is rejected. |
 
-- `OPENAI_API_KEY`: API key used by the LLM.
-- `OPENAI_MODEL`: OpenAI chat model name.
-- `LOG_LEVEL`: Application logging verbosity. Use `INFO` in production and `DEBUG` temporarily during development or diagnosis.
-- `HOTEL_PROVIDER_BASE_URL`: Hotel provider base URL used by the hotel MCP server.
-- `FLIGHT_PROVIDER_BASE_URL`: Flight provider base URL used by the flight MCP server.
-- `TRAVEL_PLANNER_API_URL`: Backend URL used by the Gradio frontend.
-- `ALLOWED_ORIGINS`: Required comma-separated explicit frontend origins allowed by FastAPI CORS. Wildcard `*` is rejected.
+The real `.env` is ignored by Git. Never commit credentials.
 
-The real `.env` file is ignored by Git. Do not commit API keys.
-
-## Running The App
-
-### Run The Backend
+### 4. Run the combined application
 
 ```bash
-python main.py
+python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-The backend runs at:
+Open:
 
-```text
-http://127.0.0.1:8000
-```
+- Application: <http://127.0.0.1:8000/app/>
+- Health: <http://127.0.0.1:8000/health>
+- OpenAPI docs: <http://127.0.0.1:8000/docs>
 
-### Run The Frontend
-
-Open a second terminal with the virtual environment activated:
+For standalone frontend development, keep the backend running and use:
 
 ```bash
 python -m frontend
 ```
 
-The Gradio frontend usually runs at:
+The standalone frontend defaults to <http://127.0.0.1:7860/> and uses `TRAVEL_PLANNER_API_URL=http://127.0.0.1:8000`.
 
-```text
-http://127.0.0.1:7860
-```
-
-## MCP Server Notes
-
-The app starts MCP servers through the MCP client adapter when LangChain tools are called.
-
-The MCP server modules can also be started directly for development checks:
-
-```bash
-python -m mcp_servers.hotel_server
-python -m mcp_servers.flight_server
-```
-
-Manual MCP server startup waits for stdio MCP input. Pressing `Ctrl+C` during a manual run may show an async cancellation traceback, which is expected during local testing.
-
-## API Endpoints
+## API
 
 | Endpoint | Method | Description |
 | --- | --- | --- |
-| `/` | GET | Identifies the TripWeaver API and links to health and API documentation. |
-| `/health` | GET | Reports backend liveness and safe configuration readiness without calling external services. |
-| `/hotels` | GET | Development/debug endpoint that lists hotels through the hotel tool. |
-| `/flights` | GET | Development/debug endpoint that lists flights through the flight tool. |
-| `/chat` | POST | Normal JSON chat endpoint. |
-| `/chat/stream` | POST | NDJSON streaming chat endpoint used by the frontend. |
+| `/` | GET | Service metadata and links. |
+| `/health` | GET | Safe configuration readiness without provider calls. |
+| `/docs` | GET | Interactive OpenAPI documentation. |
+| `/hotels` | GET | Development endpoint that lists hotels through MCP. |
+| `/flights` | GET | Development endpoint that lists flights through MCP. |
+| `/chat` | POST | Non-stream JSON chat endpoint. |
+| `/chat/stream` | POST | Incremental `application/x-ndjson` chat endpoint. |
+| `/app/` | GET | Mounted traveller-facing Gradio application. |
 
-### GET `/health`
+### Chat request
 
-The health endpoint returns HTTP 200 while the FastAPI application is running. It reports whether required LLM, hotel-provider, and flight-provider configuration is present without exposing API keys, provider URLs, or other secret values.
-
-The endpoint does not call MCP servers or external providers. A missing dependency is reported as `degraded` so one unavailable travel service does not make unrelated agents unusable.
-
-Example:
+Both chat endpoints accept:
 
 ```json
 {
-  "status": "healthy",
-  "service": "tripweaver-backend",
-  "dependencies": {
-    "llm_configured": true,
-    "hotel_provider_configured": true,
-    "flight_provider_configured": true
-  }
-}
-```
-
-### POST `/chat`
-
-Request:
-
-```json
-{
-  "message": "find hotels in Bangkok",
+  "message": "Find flights from Bangkok to Singapore",
   "session_id": "demo-session-1"
 }
 ```
 
-Response:
+`session_id` is optional, but a stable value preserves search results, conversation context, and pending booking state across requests.
+
+### Non-stream response
 
 ```json
 {
-  "response": "I found 7 hotel options: ...",
-  "hotels": [],
-  "flights": null
+  "response": "I found 18 flight options: ...",
+  "hotels": null,
+  "flights": []
 }
 ```
 
-PowerShell example:
+### NDJSON stream contract
 
-```powershell
-Invoke-RestMethod `
-  -Uri "http://127.0.0.1:8000/chat" `
-  -Method POST `
-  -ContentType "application/json" `
-  -Body '{"message":"find hotels in Bangkok","session_id":"demo-session-1"}'
-```
+Each line returned by `/chat/stream` is one JSON object:
 
-### POST `/chat/stream`
-
-`/chat/stream` returns `application/x-ndjson`.
-
-Each line is a JSON event.
-
-Example stream:
+| Type | Fields | Purpose |
+| --- | --- | --- |
+| `activity` | `stage`, `message` | Routing, searching, clarifying, booking, responding, or error progress. |
+| `delta` | `content` | Incremental text appended to the active assistant bubble. |
+| `message` | `content`, `hotels`, `flights` | Canonical final answer and structured results. |
+| `error` | `message` | Safe unexpected-stream failure message. |
+| `done` | — | Terminates every stream. |
 
 ```json
 {"type":"activity","stage":"routing","message":"Understanding your request..."}
-{"type":"activity","stage":"routing","message":"Choosing the right travel agent..."}
-{"type":"activity","stage":"searching","message":"Found hotel options."}
-{"type":"message","content":"I found 7 hotel options: ...","hotels":[...],"flights":null}
+{"type":"activity","stage":"searching","message":"Flight options found."}
+{"type":"delta","content":"I found "}
+{"type":"delta","content":"18 flight options."}
+{"type":"message","content":"I found 18 flight options.","hotels":null,"flights":[]}
 {"type":"done"}
 ```
 
-PowerShell example:
+If live model tokens are unavailable for a response, the backend emits safe text chunks before the canonical `message`. On unexpected failure, it emits `error` followed by `done` without exposing stack traces.
 
-```powershell
-$response = Invoke-WebRequest `
-  -UseBasicParsing `
-  -Uri "http://127.0.0.1:8000/chat/stream" `
-  -Method POST `
-  -ContentType "application/json" `
-  -Body '{"message":"find flights from BOM to DEL","session_id":"demo-session-1"}'
+## User Guide
 
-[System.Text.Encoding]::UTF8.GetString($response.Content)
+### General travel
+
+- `Give me three packing tips for Bangkok.`
+- `What should I know about visiting during the rainy season?`
+
+### Hotels
+
+- `Find hotels in Bangkok.`
+- `Show all available hotels.`
+- `Book option 2.`
+- `Change my email to tripweaver.changed@example.com.`
+- `Cancel hotel.`
+
+### Flights
+
+- `Find flights from Bangkok to Singapore.`
+- `Book option 3.`
+- `My passenger name is TripWeaver Test and my email is tripweaver.test@example.com.`
+- `Change passenger name to TripWeaver Changed.`
+- `Yes.`
+
+Use test passenger details and controlled provider data when demonstrating booking. Never use sensitive personal information in screenshots or submissions.
+
+## Testing and CI
+
+```bash
+python -m pytest -q
+python -m compileall -q main.py entity.py frontend agents mcp_servers tests
+python -m pip check
+git diff --check
 ```
 
-## NDJSON Stream Event Format
+Final Priority 4 verification completed with **93 passing tests**. Coverage includes routing, clarification, no-result behavior, provider-failure isolation, session persistence, confirmation safety, booking changes and cancellation, rich success responses, mounted UI availability, and genuine multi-chunk streaming.
 
-| Event Type | Purpose |
-| --- | --- |
-| `activity` | Shows progress such as routing, searching, clarifying, or booking. |
-| `message` | Contains the final assistant response and optional `hotels` or `flights` arrays. |
-| `error` | Contains a safe user-facing error if streaming fails unexpectedly. |
-| `done` | Marks the end of the stream. |
+GitHub Actions runs the locked Python 3.11 suite, compilation, dependency consistency, and Gitleaks history scanning. Provider, LLM, and booking boundaries are mocked in default CI, so automated checks do not create live bookings or require live services.
 
-Activity event:
+## Deployment
 
-```json
-{
-  "type": "activity",
-  "stage": "searching",
-  "message": "Found hotel options."
-}
-```
+`render.yaml` defines one Render web service:
 
-Message event:
+- Runtime: Python 3.11
+- Build: install locked `requirements.txt`
+- Start: `python -m uvicorn main:app --host 0.0.0.0 --port $PORT`
+- Health check: `/health`
+- Deploy branch: `main`
+- Auto-deploy: after checks pass
 
-```json
-{
-  "type": "message",
-  "content": "I found 7 hotel options: ...",
-  "hotels": [],
-  "flights": null
-}
-```
+Configure `OPENAI_API_KEY`, `HOTEL_PROVIDER_BASE_URL`, `FLIGHT_PROVIDER_BASE_URL`, and `ALLOWED_ORIGINS` in Render. Do not commit their real values. The mounted Gradio frontend communicates with FastAPI inside the same process, so the hosted deployment does not need a separate frontend service or public `TRAVEL_PLANNER_API_URL` override.
 
-Error event:
+After deployment, verify `/health`, `/docs`, `/app/`, hotel and flight search, incremental streaming, result cards, safe errors, and only controlled booking confirmation flows.
 
-```json
-{
-  "type": "error",
-  "message": "Something went wrong while streaming your trip plan. Please try again in a moment."
-}
-```
+## Resilience and Security
 
-Done event:
-
-```json
-{
-  "type": "done"
-}
-```
-
-## Example Prompts
-
-Try these in the Gradio UI:
-
-- `hotels in Bangkok`
-- `hotels in Mumbai`
-- `find flights from BOM to DEL`
-- `find flights from Tokyo to Seoul`
-- `I need to book a hotel`
-- `book Shangri-La BKK 1`
-- `Bhanu, bhanu@example.com, 2026-09-05 to 2026-09-06, single`
-- `yes`
-
-## Booking Flow
-
-Hotel booking uses session memory and user confirmation:
-
-1. User searches for hotels.
-2. Backend stores the latest hotel results in the session.
-3. User selects a hotel by name.
-4. Backend maps the hotel name to the provider hotel ID.
-5. Assistant asks for missing guest/date/room details.
-6. Assistant shows a confirmation summary.
-7. User confirms.
-8. Backend calls the hotel booking MCP tool.
-9. Assistant returns booking reference and total price.
-
-## Error Handling
-
-TripWeaver uses layered error handling:
-
-- Agent nodes catch hotel/flight MCP failures and return service-specific friendly messages.
-- The API layer catches unexpected graph failures around `graph.invoke(...)`.
-- The streaming endpoint returns safe `error` events instead of raw stack traces.
-
-Technical errors are kept in backend logs for debugging. User responses stay safe and readable.
-
-## Deployment Notes
-
-For deployment:
-
-1. Deploy the FastAPI backend to a Python-compatible host.
-2. Add production environment variables on the backend host.
-3. Ensure the backend can launch MCP server modules.
-4. Set `ALLOWED_ORIGINS` to the deployed frontend URL.
-5. Deploy the Gradio frontend.
-6. Set `TRAVEL_PLANNER_API_URL` in the frontend environment to the deployed backend URL.
-7. Test `/chat` and `/chat/stream` after deployment.
-
-Recommended production checks:
-
-- Use HTTPS URLs.
-- Configure `ALLOWED_ORIGINS` with the exact deployed frontend origin. Wildcard origins are rejected.
-- Keep `.env` and API keys out of Git.
-- Replace debug `print(...)` calls with structured logging before production use.
+- Hotel and flight provider failures are isolated, so other agents remain usable.
+- Unexpected graph failures return a safe fallback.
+- Streaming failures emit a safe `error` event and finish with `done`.
+- Technical details remain in structured logs, not traveller responses.
+- Provider settings are supplied through environment variables.
+- CORS rejects wildcard configuration and accepts explicit origins only.
+- `.env` is ignored, and Gitleaks scans Git history in CI.
 
 ## Current Limitations
 
-- Session memory is in process memory and resets when the backend restarts.
-- Hotel name matching is still fuzzy for similar hotel names.
-- Flight booking does not yet have the same natural selection flow as hotel booking.
-- The app is not yet deployed.
+- Session and pending-booking state is in process memory and resets when the Render instance restarts or moves to another process.
+- The Render free service may cold-start after inactivity.
+- Availability depends on the external providers; valid searches may honestly return no results.
+- Natural selection prioritises result numbers, stable IDs, and exact identifiers; highly similar free-form hotel names can still be ambiguous.
+- TripWeaver does not yet combine hotel and flight results into one persisted multi-day itinerary.
 
-## Secret Scanning
+## Technology
 
-TripWeaver uses Gitleaks to scan the repository and complete Git history for accidentally committed API keys, tokens, passwords, and other credentials.
+- Python 3.11
+- FastAPI and Uvicorn
+- Gradio
+- LangGraph and LangChain
+- MCP Python SDK / FastMCP
+- OpenAI chat model
+- HTTPX and python-dotenv
+- Pytest, GitHub Actions, and Gitleaks
 
-Verify the installed scanner:
+## Author
 
-```bash
-gitleaks version
-```
-
-Scan all Git refs and redact any detected values from terminal output:
-
-```bash
-gitleaks git --redact=100 --no-banner --verbose --log-opts="--all" .
-```
-
-A successful scan exits with code `0`. Possible findings exit with code `1` and must be reviewed. If a real credential is detected, revoke or rotate it before cleaning the repository history. Never treat deleting the latest file as sufficient, because the credential may remain recoverable from an earlier commit.
-
-The local `.env` file is ignored and must never be committed. `.env.example` contains names and safe placeholder/configuration values only.
-
-## Notes
-
-Short explanation:
-
-```text
-TripWeaver uses FastAPI, LangGraph, LangChain tools, MCP servers, and a Gradio frontend.
-The backend routes user intent to hotel, flight, or general agents.
-External provider calls are isolated behind MCP servers.
-The frontend consumes NDJSON streaming events so users can see agent progress.
-Structured hotel and flight results are shown in a separate expandable panel.
-For booking, the app uses session memory and human confirmation so users can naturally select a hotel from previous results without manually providing internal IDs.
-```
-
-Key points to explain:
-
-- MCP decouples provider API logic from agent logic.
-- LangGraph manages routing between specialized nodes.
-- `GraphState` carries extracted fields, results, and response text.
-- Missing input handling prevents the agent from guessing.
-- NDJSON streaming makes agent progress visible.
-- Session state stores exact hotel/flight result objects for follow-up turns.
-- Human-in-the-loop confirmation prevents accidental bookings.
-
-## Tech Stack
-
-- **FastAPI** - Backend API framework
-- **Gradio** - Frontend chat UI
-- **LangGraph** - Agent workflow routing
-- **LangChain** - Tool abstraction and LLM integration
-- **MCP Python SDK** - MCP server/client integration
-- **OpenAI** - LLM provider
-- **python-dotenv** - Environment variable loading
-- **httpx** - Provider HTTP requests inside MCP servers
+Designed & built by **Bhanura Waduge**
