@@ -300,6 +300,55 @@ def _hotel_confirmation_message(hotel: dict, details: dict) -> str:
         "Reply yes to confirm, or tell me what to change."
     )
 
+def _flight_location_code(value) -> str:
+    if isinstance(value, dict):
+        return str(
+            value.get("airport")
+            or value.get("city")
+            or "unknown"
+        )
+
+    return str(value or "unknown")
+
+def _flight_summary(flight: dict) -> str:
+    airline = flight.get("airline", "Unknown airline")
+    number = flight.get("flightNumber", "Unknown flight")
+    origin = _flight_location_code(
+        flight.get("origin")
+    )
+    destination = _flight_location_code(
+        flight.get("destination")
+    )
+    flight_date = flight.get(
+        "flightDate",
+        "unknown date",
+    )
+    departure = flight.get(
+        "departureTime",
+        "unknown time",
+    )
+    currency = flight.get("currency", "USD")
+    price = flight.get("price", "N/A")
+
+    return (
+        f"{airline} {number} from {origin} to "
+        f"{destination} on {flight_date} at {departure}, "
+        f"{currency} {price}"
+    )
+
+def _flight_confirmation_message(
+    flight: dict,
+    details: dict,
+) -> str:
+    return (
+        "Please confirm this flight booking: "
+        f"{_flight_summary(flight)} for "
+        f"{details['passenger_name']} "
+        f"({details['passenger_email']}). "
+        "Reply yes to confirm, cancel to stop, "
+        "or tell me what to change."
+    )
+
 def _hotel_booking_success_message(result: dict, hotel: Optional[dict]) -> str:
     booking = result.get("booking", {}) if isinstance(result, dict) else {}
 
@@ -778,13 +827,76 @@ def flight_node(state: GraphState) -> dict:
 
     if state.get("sub_action") == "book":
         flight_id = state.get("flight_id")
-        passenger_name = state.get("passenger_name")
-        passenger_email = state.get("passenger_email")
+        pending_booking = (
+            state.get("pending_flight_booking")
+            or {}
+        )
+
+        selected_from_candidate = (
+            _resolve_flight_selection(
+                flight_id,
+                state.get("last_flight_results", []),
+            )
+            if flight_id
+            else None
+        )
+
+        if flight_id:
+            selected_flight = selected_from_candidate
+        else:
+            selected_flight = pending_booking.get(
+                "flight"
+            )
+
+        if not selected_flight:
+            return {
+                "hotel_results": [],
+                "flight_results": [],
+                "pending_flight_booking": None,
+                "response_text": (
+                    "Please choose a valid flight from "
+                    "your latest search results by option "
+                    "number or flight number."
+                ),
+            }
+
+        resolved_flight_id = selected_flight.get("_id")
+
+        if not resolved_flight_id:
+            return {
+                "hotel_results": [],
+                "flight_results": [],
+                "pending_flight_booking": None,
+                "response_text": (
+                    "I couldn't safely identify that flight. "
+                    "Please choose another flight from your "
+                    "latest results."
+                ),
+            }
+
+        pending_details = pending_booking.get(
+            "details",
+            {},
+        )
+
+        passenger_name = (
+            state.get("passenger_name")
+            or pending_details.get("passenger_name")
+        )
+        passenger_email = (
+            state.get("passenger_email")
+            or pending_details.get("passenger_email")
+        )
+
+        details = {
+            "flight_id": resolved_flight_id,
+            "passenger_name": passenger_name,
+            "passenger_email": passenger_email,
+        }
 
         missing = [
             field
             for field, value in [
-                ("flight_id", flight_id),
                 ("passenger_name", passenger_name),
                 ("passenger_email", passenger_email),
             ]
@@ -792,10 +904,45 @@ def flight_node(state: GraphState) -> dict:
         ]
 
         if missing:
+            pending_flight_booking = {
+                "flight": selected_flight,
+                "details": details,
+                "awaiting_confirmation": False,
+            }
+
             return {
                 "hotel_results": [],
                 "flight_results": [],
-                "response_text": _missing_details_message("flight booking", missing),
+                "pending_flight_booking": (
+                    pending_flight_booking
+                ),
+                "response_text": (
+                    _missing_details_message(
+                        "flight booking",
+                        missing,
+                    )
+                ),
+            }
+
+        pending_flight_booking = {
+            "flight": selected_flight,
+            "details": details,
+            "awaiting_confirmation": True,
+        }
+
+        if not state.get("booking_confirmed"):
+            return {
+                "hotel_results": [],
+                "flight_results": [],
+                "pending_flight_booking": (
+                    pending_flight_booking
+                ),
+                "response_text": (
+                    _flight_confirmation_message(
+                        selected_flight,
+                        details,
+                    )
+                ),
             }
 
         logger.info("Invoking flight booking MCP tool")
@@ -803,7 +950,7 @@ def flight_node(state: GraphState) -> dict:
         try:
             result = book_flight.invoke(
                 {
-                    "flight_id": flight_id,
+                    "flight_id": resolved_flight_id,
                     "passenger_name": passenger_name,
                     "passenger_email": passenger_email,
                 }
