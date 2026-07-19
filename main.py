@@ -221,6 +221,12 @@ async def chat(request: ChatRequest):
         session["pending_hotel_booking"] = result.get("pending_hotel_booking")
         logger.debug("Stored pending hotel booking state")
 
+    if "pending_flight_booking" in result:
+        session["pending_flight_booking"] = result.get(
+            "pending_flight_booking"
+        )
+        logger.debug("Updated pending flight booking state")
+
     if result.get("booking_confirmed"):
         session["pending_hotel_booking"] = None
         logger.debug("Cleared pending hotel booking state")
@@ -339,6 +345,10 @@ async def chat_stream(request: ChatRequest):
             if result.get("pending_hotel_booking") is not None:
                 session["pending_hotel_booking"] = result.get("pending_hotel_booking")
                 logger.debug("Stored pending hotel booking state during stream")
+
+            if "pending_flight_booking" in result:
+                session["pending_flight_booking"] = result.get("pending_flight_booking")
+                logger.debug("Updated pending flight booking state during stream")
 
             if result.get("booking_confirmed"):
                 session["pending_hotel_booking"] = None
