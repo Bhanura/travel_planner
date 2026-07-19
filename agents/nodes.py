@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Optional, Literal
 
 from pydantic import BaseModel, Field
@@ -143,6 +144,123 @@ def _normalize_selection_text(value: Optional[str]) -> str:
         return ""
 
     return " ".join(value.lower().replace('"', "").replace("'", "").split())
+
+SELECTION_ORDINALS = {
+    "first": 1,
+    "second": 2,
+    "third": 3,
+    "fourth": 4,
+    "fifth": 5,
+    "sixth": 6,
+    "seventh": 7,
+    "eighth": 8,
+    "ninth": 9,
+    "tenth": 10,
+}
+
+def _selection_position(candidate: Optional[str]) -> Optional[int]:
+    """
+    Extract a one-based result position from natural
+    selection text such as 'option 2' or 'second flight'.
+    """
+    candidate_text = _normalize_selection_text(candidate)
+
+    if not candidate_text:
+        return None
+
+    numeric_match = re.search(
+        (
+            r"\b(?:option|flight)"
+            r"(?:\s+number)?\s+#?"
+            r"(\d+)(?:st|nd|rd|th)?\b"
+        ),
+        candidate_text,
+    )
+
+    if numeric_match:
+        return int(numeric_match.group(1))
+
+    if re.fullmatch(
+        r"#?(\d+)(?:st|nd|rd|th)?",
+        candidate_text,
+    ):
+        number_match = re.search(r"\d+", candidate_text)
+
+        if number_match:
+            return int(number_match.group())
+
+    words = set(candidate_text.split())
+
+    for ordinal, position in SELECTION_ORDINALS.items():
+        if ordinal not in words:
+            continue
+
+        if (
+            len(words) == 1
+            or "option" in words
+            or "flight" in words
+        ):
+            return position
+
+    return None
+
+def _resolve_flight_selection(
+    candidate: Optional[str],
+    flights: list[dict],
+) -> Optional[dict]:
+    """
+    Resolve a natural user selection to one stored
+    flight result.
+
+    Ambiguous or partial matches are intentionally rejected.
+    """
+    if not candidate or not flights:
+        return None
+
+    candidate_text = _normalize_selection_text(candidate)
+    position = _selection_position(candidate)
+
+    if position is not None:
+        index = position - 1
+
+        if 0 <= index < len(flights):
+            return flights[index]
+
+        return None
+
+    for flight in flights:
+        flight_id = _normalize_selection_text(
+            flight.get("_id")
+        )
+
+        if candidate_text == flight_id:
+            return flight
+
+    for flight in flights:
+        flight_number = _normalize_selection_text(
+            flight.get("flightNumber")
+        )
+
+        if candidate_text == flight_number:
+            return flight
+
+    for flight in flights:
+        airline = _normalize_selection_text(
+            flight.get("airline")
+        )
+        flight_number = _normalize_selection_text(
+            flight.get("flightNumber")
+        )
+        displayed_name = " ".join(
+            part
+            for part in [airline, flight_number]
+            if part
+        )
+
+        if candidate_text == displayed_name:
+            return flight
+
+    return None
 
 def _resolve_hotel_selection(candidate: Optional[str], hotels: list[dict]) -> Optional[dict]:
     if not candidate or not hotels:
