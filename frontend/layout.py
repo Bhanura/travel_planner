@@ -4,6 +4,7 @@ import gradio as gr
 
 from .handlers import respond
 from .presenters import (
+    format_test_transcript,
     render_progress,
     render_results_panel,
     toggle_results,
@@ -186,6 +187,34 @@ def build_demo() -> gr.Blocks:
                         elem_id="tw-results-toggle",
                     )
 
+                with gr.Accordion(
+                    "Booking test transcript — temporary",
+                    open=False,
+                    elem_classes=["tw-insight-card"],
+                ):
+                    gr.Markdown(
+                        "Use test passenger details only. "
+                        "Remove this tool after Priority 3 verification."
+                    )
+
+                    prepare_transcript_button = gr.Button(
+                        "Prepare test transcript",
+                        variant="secondary",
+                    )
+
+                    test_transcript = gr.Textbox(
+                        label="Conversation transcript",
+                        lines=10,
+                        max_lines=20,
+                        interactive=False,
+                        buttons=["copy"],
+                        placeholder=(
+                            "Run a booking conversation, then select "
+                            "Prepare test transcript."
+                        ),
+                    )
+
+
         submit.click(
             respond,
             inputs=[message, chatbot, session_id, results_state],
@@ -206,6 +235,13 @@ def build_demo() -> gr.Blocks:
                 results_state,
                 toggle_results_button,
             ],
+        )
+
+        prepare_transcript_button.click(
+            format_test_transcript,
+            inputs=[chatbot],
+            outputs=[test_transcript],
+            api_visibility="private",
         )
 
     return demo
