@@ -397,6 +397,228 @@ def _is_affirmative(message: str) -> bool:
         or "do it" in cleaned
     )
 
+CANCELLATION_PHRASES = {
+    "cancel",
+    "stop this booking",
+    "dont book it",
+    "do not book it",
+    "never mind",
+    "nevermind",
+}
+
+CHANGE_PHRASES = {
+    "change",
+    "update",
+    "correct",
+    "replace",
+    "instead",
+}
+
+def _contains_booking_phrase(
+    cleaned: str,
+    phrases: set[str],
+) -> bool:
+    return any(
+        re.search(
+            rf"\b{re.escape(phrase)}\b",
+            cleaned,
+        )
+        for phrase in phrases
+    )
+
+def _booking_decision(message: str) -> str:
+    cleaned = _normalize_selection_text(message)
+
+    if _contains_booking_phrase(
+        cleaned,
+        CANCELLATION_PHRASES,
+    ):
+        return "cancel"
+
+    if _contains_booking_phrase(
+        cleaned,
+        CHANGE_PHRASES,
+    ):
+        return "change"
+
+    if _is_affirmative(message):
+        return "confirm"
+
+    return "unknown"
+
+def _booking_type_hint(
+    message: str,
+) -> str | None:
+    cleaned = _normalize_selection_text(message)
+    words = set(
+        cleaned.replace(",", " ")
+        .replace(".", " ")
+        .split()
+    )
+
+    has_hotel = "hotel" in words
+    has_flight = "flight" in words
+
+    if has_hotel and not has_flight:
+        return "hotel"
+
+    if has_flight and not has_hotel:
+        return "flight"
+
+    return None
+
+def _confirmed_booking_route(
+    state: GraphState,
+    booking_type: str,
+    pending_booking: dict,
+) -> dict:
+    details = pending_booking.get("details", {})
+
+    result = {
+        "intent": booking_type,
+        "sub_action": "book",
+        "city": None,
+        "check_in": None,
+        "check_out": None,
+        "origin": None,
+        "destination": None,
+        "flight_date": None,
+        "hotel_id": None,
+        "guest_name": None,
+        "guest_email": None,
+        "room_type": None,
+        "flight_id": None,
+        "passenger_name": None,
+        "passenger_email": None,
+        "hotel_results": [],
+        "flight_results": [],
+        "last_hotel_results": state.get(
+            "last_hotel_results",
+            [],
+        ),
+        "last_flight_results": state.get(
+            "last_flight_results",
+            [],
+        ),
+        "pending_hotel_booking": state.get(
+            "pending_hotel_booking"
+        ),
+        "pending_flight_booking": state.get(
+            "pending_flight_booking"
+        ),
+        "booking_confirmed": True,
+        "response_text": "",
+    }
+
+    if booking_type == "hotel":
+        hotel = pending_booking.get("hotel", {})
+
+        result.update(
+            {
+                "check_in": details.get(
+                    "check_in_date"
+                ),
+                "check_out": details.get(
+                    "check_out_date"
+                ),
+                "hotel_id": (
+                    hotel.get("_id")
+                    or details.get("hotel_id")
+                ),
+                "guest_name": details.get(
+                    "guest_name"
+                ),
+                "guest_email": details.get(
+                    "guest_email"
+                ),
+                "room_type": details.get(
+                    "room_type"
+                ),
+            }
+        )
+
+    elif booking_type == "flight":
+        flight = pending_booking.get("flight", {})
+
+        result.update(
+            {
+                "flight_id": (
+                    flight.get("_id")
+                    or details.get("flight_id")
+                ),
+                "passenger_name": details.get(
+                    "passenger_name"
+                ),
+                "passenger_email": details.get(
+                    "passenger_email"
+                ),
+            }
+        )
+
+    return result
+
+def _cancelled_booking_route(
+    state: GraphState,
+    booking_type: str,
+) -> dict:
+    result = {
+        "intent": booking_type,
+        "sub_action": "cancel",
+        "hotel_results": [],
+        "flight_results": [],
+        "pending_hotel_booking": state.get(
+            "pending_hotel_booking"
+        ),
+        "pending_flight_booking": state.get(
+            "pending_flight_booking"
+        ),
+        "booking_confirmed": False,
+        "response_text": "",
+    }
+
+    pending_key = (
+        f"pending_{booking_type}_booking"
+    )
+    result[pending_key] = None
+
+    return result
+
+def _booking_control_route(
+    state: GraphState,
+    message: str,
+) -> dict:
+    return {
+        "intent": "unknown",
+        "sub_action": "booking_control",
+        "hotel_results": [],
+        "flight_results": [],
+        "pending_hotel_booking": state.get(
+            "pending_hotel_booking"
+        ),
+        "pending_flight_booking": state.get(
+            "pending_flight_booking"
+        ),
+        "booking_confirmed": False,
+        "response_text": message,
+    }
+
+def _booking_cancellation_response(
+    booking_type: str,
+) -> dict:
+    pending_key = (
+        f"pending_{booking_type}_booking"
+    )
+
+    return {
+        "hotel_results": [],
+        "flight_results": [],
+        pending_key: None,
+        "response_text": (
+            f"Your {booking_type} booking request "
+            "was cancelled."
+        ),
+    }
+
 def _format_missing_fields(missing: list[str]) -> str:
     labels = [FIELD_LABELS.get(field, field) for field in missing]
 
@@ -428,41 +650,106 @@ def router(state: GraphState) -> dict:
     user_message = state["messages"][-1]
     history_messages = state["messages"][:-1]
 
-    pending_hotel_booking = state.get("pending_hotel_booking")
+    pending_hotel_booking = state.get(
+        "pending_hotel_booking"
+    )
+    pending_flight_booking = state.get(
+        "pending_flight_booking"
+    )
 
-    if (
-        pending_hotel_booking
-        and pending_hotel_booking.get("awaiting_confirmation")
-        and _is_affirmative(user_message)
-    ):
-        details = pending_hotel_booking.get("details", {})
-        hotel = pending_hotel_booking.get("hotel", {})
+    pending_bookings = []
 
-        return {
-            "intent": "hotel",
-            "sub_action": "book",
-            "city": None,
-            "check_in": details.get("check_in_date"),
-            "check_out": details.get("check_out_date"),
-            "origin": None,
-            "destination": None,
-            "flight_date": None,
-            "hotel_id": hotel.get("_id"),
-            "guest_name": details.get("guest_name"),
-            "guest_email": details.get("guest_email"),
-            "room_type": details.get("room_type"),
-            "flight_id": None,
-            "passenger_name": None,
-            "passenger_email": None,
-            "hotel_results": [],
-            "flight_results": [],
-            "last_hotel_results": state.get("last_hotel_results", []),
-            "last_flight_results": state.get("last_flight_results", []),
-            "pending_hotel_booking": pending_hotel_booking,
-            "pending_flight_booking": state.get("pending_flight_booking"),
-            "booking_confirmed": True,
-            "response_text": "",
-        }
+    if pending_hotel_booking:
+        pending_bookings.append(
+            (
+                "hotel",
+                pending_hotel_booking,
+            )
+        )
+
+    if pending_flight_booking:
+        pending_bookings.append(
+            (
+                "flight",
+                pending_flight_booking,
+            )
+        )
+
+    booking_decision = _booking_decision(
+        user_message
+    )
+    booking_type_hint = _booking_type_hint(
+        user_message
+    )
+
+    if booking_decision in {
+        "confirm",
+        "cancel",
+    }:
+        if not pending_bookings:
+            return _booking_control_route(
+                state,
+                (
+                    "There is no pending booking "
+                    "to confirm or cancel."
+                ),
+            )
+
+        candidates = pending_bookings
+
+        if booking_type_hint:
+            candidates = [
+                booking
+                for booking in pending_bookings
+                if booking[0] == booking_type_hint
+            ]
+
+            if not candidates:
+                return _booking_control_route(
+                    state,
+                    (
+                        "There is no pending "
+                        f"{booking_type_hint} booking."
+                    ),
+                )
+
+        if (
+            not booking_type_hint
+            and len(candidates) > 1
+        ):
+            return _booking_control_route(
+                state,
+                (
+                    "You have pending hotel and flight "
+                    "bookings. Please say which booking "
+                    "you mean."
+                ),
+            )
+
+        booking_type, pending_booking = candidates[0]
+
+        if booking_decision == "cancel":
+            return _cancelled_booking_route(
+                state,
+                booking_type,
+            )
+
+        if pending_booking.get(
+            "awaiting_confirmation"
+        ):
+            return _confirmed_booking_route(
+                state,
+                booking_type,
+                pending_booking,
+            )
+
+        return _booking_control_route(
+            state,
+            (
+                f"Your {booking_type} booking still "
+                "needs more details before confirmation."
+            ),
+        )
 
     origin = None
     destination = None
@@ -513,6 +800,15 @@ def router(state: GraphState) -> dict:
             "passenger_email": None,
         }
 
+    if (
+        booking_decision == "change"
+        and len(pending_bookings) == 1
+    ):
+        booking_type, _ = pending_bookings[0]
+
+        data["intent"] = booking_type
+        data["sub_action"] = "book"
+
     return {
         "intent": data.get("intent", "unknown"),
         "sub_action": data.get("sub_action", "general"),
@@ -536,6 +832,13 @@ def router(state: GraphState) -> dict:
 
         "hotel_results": [],
         "flight_results": [],
+        "pending_hotel_booking": state.get(
+            "pending_hotel_booking"
+        ),
+        "pending_flight_booking": state.get(
+            "pending_flight_booking"
+        ),
+        "booking_confirmed": False,
         "response_text": "",
     }
 
@@ -617,6 +920,12 @@ def hotel_node(state: GraphState) -> dict:
     city = state.get("city")
     check_in = state.get("check_in")
     check_out = state.get("check_out")
+
+    if state.get("sub_action") == "cancel":
+        return _booking_cancellation_response(
+            "hotel"
+        )
+
     logger.debug(
         "Hotel node received %d prior result(s)",
         len(state.get("last_hotel_results", [])),
@@ -824,6 +1133,11 @@ def flight_node(state: GraphState) -> dict:
     origin = state.get("origin")
     destination = state.get("destination")
     flight_date = state.get("flight_date")
+
+    if state.get("sub_action") == "cancel":
+        return _booking_cancellation_response(
+            "flight"
+        )
 
     if state.get("sub_action") == "book":
         flight_id = state.get("flight_id")
@@ -1051,6 +1365,20 @@ def flight_node(state: GraphState) -> dict:
     }
 
 def unknown_node(state: GraphState) -> dict:
+
+    if (
+        state.get("sub_action")
+        == "booking_control"
+        and state.get("response_text")
+    ):
+        return {
+            "hotel_results": [],
+            "flight_results": [],
+            "response_text": state[
+                "response_text"
+            ],
+        }
+
     user_message = state["messages"][-1]
     history_messages = state["messages"][:-1]
 

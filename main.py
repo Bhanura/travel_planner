@@ -64,6 +64,40 @@ def _get_session(session_id: str | None) -> dict:
 
     return conversation_sessions[safe_session_id]
 
+def _update_pending_booking_session(
+    session: dict,
+    result: dict,
+) -> None:
+    booking_types = ("hotel", "flight")
+
+    for booking_type in booking_types:
+        pending_key = (
+            f"pending_{booking_type}_booking"
+        )
+
+        if pending_key in result:
+            session[pending_key] = result.get(
+                pending_key
+            )
+            logger.debug(
+                "Updated pending %s booking state",
+                booking_type,
+            )
+
+    if result.get("booking_confirmed"):
+        booking_type = result.get("intent")
+
+        if booking_type in booking_types:
+            pending_key = (
+                f"pending_{booking_type}_booking"
+            )
+            session[pending_key] = None
+
+            logger.debug(
+                "Cleared confirmed %s booking state",
+                booking_type,
+            )
+
 allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", "").strip()
 
 if not allowed_origins_raw:
@@ -217,19 +251,10 @@ async def chat(request: ChatRequest):
         len(session["last_flight_results"]),
     )
 
-    if result.get("pending_hotel_booking") is not None:
-        session["pending_hotel_booking"] = result.get("pending_hotel_booking")
-        logger.debug("Stored pending hotel booking state")
-
-    if "pending_flight_booking" in result:
-        session["pending_flight_booking"] = result.get(
-            "pending_flight_booking"
-        )
-        logger.debug("Updated pending flight booking state")
-
-    if result.get("booking_confirmed"):
-        session["pending_hotel_booking"] = None
-        logger.debug("Cleared pending hotel booking state")
+    _update_pending_booking_session(
+        session,
+        result,
+    )
 
     return ChatResponse(
         response=response_text,
@@ -342,17 +367,10 @@ async def chat_stream(request: ChatRequest):
                 len(session["last_flight_results"]),
             )
 
-            if result.get("pending_hotel_booking") is not None:
-                session["pending_hotel_booking"] = result.get("pending_hotel_booking")
-                logger.debug("Stored pending hotel booking state during stream")
-
-            if "pending_flight_booking" in result:
-                session["pending_flight_booking"] = result.get("pending_flight_booking")
-                logger.debug("Updated pending flight booking state during stream")
-
-            if result.get("booking_confirmed"):
-                session["pending_hotel_booking"] = None
-                logger.debug("Cleared pending hotel booking state during stream")
+            _update_pending_booking_session(
+                session,
+                result,
+            )
 
             if not live_response_chunks:
                 for text_chunk in iter_text_chunks(response_text):
