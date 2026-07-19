@@ -128,6 +128,9 @@ def test_hotel_change_updates_only_email_and_reconfirms(
     assert "Reply yes to confirm" in result[
         "response_text"
     ]
+    assert "cancel to stop" in result[
+        "response_text"
+    ]
 
 
 def test_flight_change_updates_only_name_and_reconfirms(
@@ -191,5 +194,8 @@ def test_flight_change_updates_only_name_and_reconfirms(
     ] == "test@example.com"
     assert "New Name" in result["response_text"]
     assert "Reply yes to confirm" in result[
+        "response_text"
+    ]
+    assert "cancel to stop" in result[
         "response_text"
     ]

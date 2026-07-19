@@ -297,7 +297,8 @@ def _hotel_confirmation_message(hotel: dict, details: dict) -> str:
         f"{_hotel_summary(hotel)} from {details['check_in_date']} "
         f"to {details['check_out_date']} for {details['guest_name']} "
         f"({details['guest_email']}), room type: {details['room_type']}. "
-        "Reply yes to confirm, or tell me what to change."
+        "Reply yes to confirm, cancel to stop, "
+        "or tell me what to change."
     )
 
 def _flight_location_code(value) -> str:
@@ -369,6 +370,46 @@ def _hotel_booking_success_message(result: dict, hotel: Optional[dict]) -> str:
     if total_price is not None:
         currency = hotel.get("currency", "USD") if hotel else "USD"
         parts.append(f"Total price: {currency} {total_price}.")
+
+    return " ".join(parts)
+
+def _flight_booking_success_message(
+    result: dict,
+    flight: Optional[dict],
+) -> str:
+    booking = result.get("booking", {})
+
+    if not isinstance(booking, dict):
+        booking = {}
+
+    booking_reference = (
+        booking.get("bookingReference")
+        or booking.get("bookingId")
+        or result.get("bookingReference")
+        or result.get("bookingId")
+    )
+
+    status = (
+        booking.get("status")
+        or result.get("status")
+        or "confirmed"
+    )
+
+    if flight:
+        flight_text = _flight_summary(flight)
+    else:
+        flight_text = "your selected flight"
+
+    parts = [
+        f"Flight booking {status} for "
+        f"{flight_text}."
+    ]
+
+    if booking_reference:
+        parts.append(
+            f"Booking reference: "
+            f"{booking_reference}."
+        )
 
     return " ".join(parts)
 
@@ -1049,12 +1090,30 @@ def hotel_node(state: GraphState) -> dict:
                     "room_type": room_type,
                 }
             )
+
         except Exception:
             logger.warning(
                 "Hotel booking MCP call failed",
                 exc_info=True,
             )
-            return _service_error_response("hotel")
+
+            error_response = (
+                _service_error_response(
+                    "hotel"
+                )
+            )
+
+            error_response.update(
+                {
+                    "pending_hotel_booking": (
+                        pending_booking
+                    ),
+                    "booking_confirmed": False,
+                }
+            )
+
+            return error_response
+
     elif state.get("sub_action") == "list_all":
         try:
             result = get_hotels.invoke({})
@@ -1269,12 +1328,29 @@ def flight_node(state: GraphState) -> dict:
                     "passenger_email": passenger_email,
                 }
             )
+
         except Exception:
             logger.warning(
                 "Flight booking MCP call failed",
                 exc_info=True,
             )
-            return _service_error_response("flight")
+
+            error_response = (
+                _service_error_response(
+                    "flight"
+                )
+            )
+
+            error_response.update(
+                {
+                    "pending_flight_booking": (
+                        pending_flight_booking
+                    ),
+                    "booking_confirmed": False,
+                }
+            )
+
+            return error_response
 
     elif state.get("sub_action") == "list_all":
         try:
@@ -1328,7 +1404,13 @@ def flight_node(state: GraphState) -> dict:
 
     if state.get("sub_action") == "book":
         if isinstance(result, dict):
-            confirmation = result.get("message") or result.get("status") or "Flight booking completed."
+            confirmation = (
+                _flight_booking_success_message(
+                    result,
+                    selected_flight,
+                )
+            )
+
             return {
                 "hotel_results": [],
                 "flight_results": [],
@@ -1338,8 +1420,13 @@ def flight_node(state: GraphState) -> dict:
         return {
             "hotel_results": [],
             "flight_results": [],
-            "response_text": "Flight booking completed.",
-        }
+            "response_text": (
+                _flight_booking_success_message(
+                    {},
+                    selected_flight,
+                )
+            ),
+       }
 
     if isinstance(result, dict):
         flight_results = result.get("flights", [])
